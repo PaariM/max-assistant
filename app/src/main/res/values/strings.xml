@@ -1,0 +1,3 @@
+<resources>
+    <string name="accessibility_service_description">When you enable Max in Accessibility settings, “Hey Max, type …” can place dictated text into the currently focused text field. Max does not read the field or press Send.</string>
+</resources>

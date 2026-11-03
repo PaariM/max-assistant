@@ -1,0 +1,691 @@
+package com.aira.assistant
+
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.Manifest
+import android.content.pm.PackageManager.PERMISSION_GRANTED
+import android.os.Build
+import android.net.Uri
+import android.os.Bundle
+import android.provider.ContactsContract
+import android.provider.Settings
+import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Contacts
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import java.util.Locale
+
+private val Midnight = Color(0xFF101322)
+private val Panel = Color(0xFF1B2033)
+private val Teal = Color(0xFF71E0D0)
+private val Muted = Color(0xFF9BA4B9)
+
+data class InstalledApp(val name: String, val packageName: String)
+
+private fun isAccessibilityServiceEnabled(context: Context): Boolean {
+    val serviceName = ComponentName(context, AiraAccessibilityService::class.java).flattenToString()
+    return Settings.Secure.getString(
+        context.contentResolver,
+        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+    ).orEmpty().split(':').any { it.equals(serviceName, ignoreCase = true) }
+}
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val wakeCommand = intent.getStringExtra(WakeWordService.EXTRA_COMMAND)
+        setContent {
+            MaterialTheme(colorScheme = darkColorScheme(
+                background = Midnight,
+                surface = Panel,
+                primary = Teal,
+                onPrimary = Midnight,
+                onBackground = Color.White,
+                onSurface = Color.White,
+                secondary = Muted
+            )) {
+                AssistantScreen(wakeCommand)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssistantScreen(initialCommand: String?) {
+    val context = LocalContext.current
+    val activity = context as Activity
+    var draft by remember { mutableStateOf(initialCommand.orEmpty()) }
+    var status by remember {
+        mutableStateOf(
+            if (initialCommand.isNullOrBlank()) "Ready when you are"
+            else "Hey Max heard you. Review the command, then tap send."
+        )
+    }
+    var wakeActive by remember {
+        mutableStateOf(
+            context.getSharedPreferences(WakeWordService.PREFERENCES_NAME, Context.MODE_PRIVATE)
+                .getBoolean(WakeWordService.PREFERENCE_LISTENING, false)
+        )
+    }
+    var accessibilityEnabled by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
+    var expandedApps by remember { mutableStateOf(false) }
+    var messages by remember {
+        mutableStateOf(listOf("Hi! I’m Max. What can I help you do?"))
+    }
+    val apps = remember {
+        val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        context.packageManager.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
+            .mapNotNull { result ->
+                val info = result.activityInfo ?: return@mapNotNull null
+                if (info.packageName == context.packageName) return@mapNotNull null
+                InstalledApp(
+                    name = result.loadLabel(context.packageManager).toString(),
+                    packageName = info.packageName
+                )
+            }
+            .distinctBy { it.packageName }
+            .sortedBy { it.name.lowercase(Locale.getDefault()) }
+    }
+    val speechLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val spokenText = result.data
+            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+        if (result.resultCode == Activity.RESULT_OK && !spokenText.isNullOrBlank()) {
+            draft = spokenText
+            status = "Heard you. Tap send to confirm."
+        } else {
+            status = "I didn’t catch that. Try again."
+        }
+    }
+    val contactsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val contactUri = result.data?.data
+        status = if (result.resultCode == Activity.RESULT_OK && contactUri != null) {
+            "Contact selected. Choose Call or Message in Contacts."
+        } else {
+            "Contacts closed."
+        }
+    }
+    val accessibilitySettingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        accessibilityEnabled = isAccessibilityServiceEnabled(context)
+        status = if (accessibilityEnabled) {
+            "Focused text entry is on. Focus a text field and say “Hey Max, type …”."
+        } else {
+            "Focused text entry stays off until you enable it in Android Accessibility settings."
+        }
+    }
+    val wakePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val microphoneGranted = grants[Manifest.permission.RECORD_AUDIO] == true ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PERMISSION_GRANTED
+        val notificationsGranted = Build.VERSION.SDK_INT < 33 ||
+            grants[Manifest.permission.POST_NOTIFICATIONS] == true ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PERMISSION_GRANTED
+        if (microphoneGranted && notificationsGranted) {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, WakeWordService::class.java).setAction(WakeWordService.ACTION_START)
+            )
+            context.getSharedPreferences(WakeWordService.PREFERENCES_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(WakeWordService.PREFERENCE_LISTENING, true)
+                .apply()
+            wakeActive = true
+            status = "Wake phrase active. Say “Hey Max” to wake me."
+        } else {
+            status = "Microphone and notification permissions are needed for wake phrase listening."
+        }
+    }
+    val textToSpeech = remember {
+        TextToSpeech(context) { }
+    }
+    DisposableEffect(textToSpeech) {
+        onDispose { textToSpeech.shutdown() }
+    }
+
+    fun reply(text: String) {
+        messages = messages + text
+        status = text
+        textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "max-reply")
+    }
+
+    fun startListening() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to Max")
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+        }
+        try {
+            speechLauncher.launch(intent)
+            status = "Listening…"
+        } catch (_: ActivityNotFoundException) {
+            status = "No speech recognition service is available on this device."
+        }
+    }
+
+    fun openContacts() {
+        val intent = Intent(Intent.ACTION_PICK, ContactsContract.Contacts.CONTENT_URI)
+        try {
+            contactsLauncher.launch(intent)
+        } catch (_: ActivityNotFoundException) {
+            status = "No contacts app is available on this device."
+        }
+    }
+
+    fun toggleWakePhrase() {
+        if (wakeActive) {
+            context.stopService(Intent(context, WakeWordService::class.java))
+            context.getSharedPreferences(WakeWordService.PREFERENCES_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(WakeWordService.PREFERENCE_LISTENING, false)
+                .apply()
+            wakeActive = false
+            status = "Background wake phrase is off."
+            return
+        }
+        val permissions = buildList {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PERMISSION_GRANTED) {
+                add(Manifest.permission.RECORD_AUDIO)
+            }
+            if (Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PERMISSION_GRANTED
+            ) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        if (permissions.isEmpty()) {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, WakeWordService::class.java).setAction(WakeWordService.ACTION_START)
+            )
+            context.getSharedPreferences(WakeWordService.PREFERENCES_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(WakeWordService.PREFERENCE_LISTENING, true)
+                .apply()
+            wakeActive = true
+            status = "Wake phrase active. Say “Hey Max” to wake me."
+        } else {
+            wakePermissionLauncher.launch(permissions.toTypedArray())
+        }
+    }
+
+    fun openApp(query: String): Boolean {
+        val needle = query.trim().lowercase(Locale.getDefault())
+        val app = apps.firstOrNull { it.name.lowercase(Locale.getDefault()) == needle }
+            ?: apps.firstOrNull { it.name.lowercase(Locale.getDefault()).startsWith(needle) }
+            ?: apps.firstOrNull { it.name.lowercase(Locale.getDefault()).contains(needle) }
+            ?: return false
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
+            ?: return false
+        context.startActivity(launchIntent)
+        return true
+    }
+
+    fun shareText(text: String, packageName: String? = null) {
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+            packageName?.let(::setPackage)
+        }
+        try {
+            activity.startActivity(Intent.createChooser(sendIntent, "Choose a chat and review your message"))
+        } catch (_: ActivityNotFoundException) {
+            reply("I couldn’t find an app that can send that message.")
+        }
+    }
+
+    fun handleCommand(rawCommand: String) {
+        val command = rawCommand.trim()
+        if (command.isEmpty()) return
+        messages = messages + "You: $command"
+        draft = ""
+        val lower = command.lowercase(Locale.getDefault())
+
+        val whatsappMessage = Regex(
+            """^(?:open\s+whatsapp\s+and\s+(?:type|write|send)|(?:send|message))\s+(.+?)(?:\s+(?:on|via|in|to)\s+whatsapp)?$""",
+            RegexOption.IGNORE_CASE
+        ).matchEntire(command)
+        if (whatsappMessage != null && (
+                lower.contains("whatsapp") ||
+                    lower.startsWith("open whatsapp") ||
+                    lower.startsWith("send ") ||
+                    lower.startsWith("message ")
+                )
+        ) {
+            val text = whatsappMessage.groupValues[1].trim()
+            if (apps.none { it.packageName == "com.whatsapp" || it.packageName == "com.whatsapp.w4b" }) {
+                reply("WhatsApp isn’t installed. You can still share this text with another app.")
+                shareText(text)
+            } else {
+                val packageName = if (apps.any { it.packageName == "com.whatsapp" }) {
+                    "com.whatsapp"
+                } else {
+                    "com.whatsapp.w4b"
+                }
+                reply("Opening WhatsApp with your text ready. Choose a chat, then review and send it.")
+                shareText(text, packageName)
+            }
+            return
+        }
+
+        when {
+            lower == "contacts" || lower == "open contacts" -> openContacts()
+            lower.startsWith("type ") || lower.startsWith("write ") || lower.startsWith("enter ") -> {
+                reply("For cross-app typing, enable Max’s Accessibility service, focus the text field, then say “Hey Max, type …”. I never press Send.")
+            }
+            lower == "show apps" || lower == "list apps" -> {
+                expandedApps = true
+                reply("Here are the apps available to open.")
+            }
+            lower.startsWith("open ") -> {
+                val appName = command.substringAfter(' ').trim()
+                if (openApp(appName)) {
+                    reply("Opening $appName.")
+                } else {
+                    reply("I couldn’t find an installed app called $appName. You can browse the app list below.")
+                }
+            }
+            lower.startsWith("call ") -> {
+                val number = command.substringAfter(' ').filter { it.isDigit() || it == '+' }
+                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number"))
+                try {
+                    context.startActivity(intent)
+                    reply("The dialer is ready. Review the number and tap Call.")
+                } catch (_: ActivityNotFoundException) {
+                    reply("No phone dialer is available on this device.")
+                }
+            }
+            lower.startsWith("message ") || lower.startsWith("send ") -> {
+                val text = command.substringAfter(' ').trim()
+                if (text.isNotEmpty()) {
+                    reply("Choose a messaging app and review your message before sending.")
+                    shareText(text)
+                } else {
+                    reply("Tell me what you’d like to share.")
+                }
+            }
+            else -> reply("I can open installed apps, prepare a message to share, open Contacts, or bring up the dialer.")
+        }
+    }
+
+    Surface(modifier = Modifier.fillMaxSize(), color = Midnight) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .background(
+                            Brush.linearGradient(listOf(Teal, Color(0xFF9A8BFF))),
+                            CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("M", color = Midnight, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Max", fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                    Text("YOUR EVERYDAY ASSISTANT", color = Muted, fontSize = 10.sp, letterSpacing = 1.5.sp)
+                }
+                IconButton(onClick = { expandedApps = !expandedApps }) {
+                    Icon(Icons.Default.Apps, contentDescription = "Show apps", tint = Teal)
+                }
+            }
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Panel),
+                shape = RoundedCornerShape(28.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFF242C45), Color(0xFF192A3A), Panel)
+                            )
+                        )
+                        .padding(vertical = 24.dp, horizontal = 20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            modifier = Modifier
+                                .size(92.dp)
+                                .background(Teal.copy(alpha = 0.12f), CircleShape)
+                                .padding(12.dp)
+                                .background(
+                                    Brush.linearGradient(listOf(Teal, Color(0xFF9A8BFF))),
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = null, tint = Midnight, modifier = Modifier.size(34.dp))
+                        }
+                        Spacer(Modifier.height(14.dp))
+                        Text(status, color = Color.White, fontWeight = FontWeight.Medium)
+                        Text(
+                            "Tap the mic and speak in your device language",
+                            color = Muted,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 5.dp)
+                        )
+                        Button(
+                            onClick = ::startListening,
+                            modifier = Modifier.padding(top = 15.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Teal),
+                            shape = RoundedCornerShape(20.dp)
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Talk to Max", color = Midnight, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                QuickAction(
+                    label = "Contacts",
+                    icon = { Icon(Icons.Default.Contacts, contentDescription = null) },
+                    modifier = Modifier.weight(1f),
+                    onClick = ::openContacts
+                )
+                QuickAction(
+                    label = "Dial",
+                    icon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        try {
+                            context.startActivity(Intent(Intent.ACTION_DIAL))
+                        } catch (_: ActivityNotFoundException) {
+                            status = "No phone dialer is available on this device."
+                        }
+                    }
+                )
+                QuickAction(
+                    label = "Apps",
+                    icon = { Icon(Icons.Default.Apps, contentDescription = null) },
+                    modifier = Modifier.weight(1f),
+                    onClick = { expandedApps = !expandedApps }
+                )
+            }
+
+            Button(
+                onClick = ::toggleWakePhrase,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (wakeActive) Color(0xFF343B50) else Color(0xFF243A42)
+                ),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Icon(Icons.Default.Mic, contentDescription = null, tint = Teal, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (wakeActive) "Turn off “Hey Max” listening" else "Enable “Hey Max” wake phrase",
+                    color = Color.White
+                )
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Panel),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Type into another app", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Enable Android Accessibility, open a chat yourself, and focus its message field. “Hey Max, type …” replaces the focused field; Max won’t read it or press Send.",
+                        color = Muted,
+                        fontSize = 12.sp
+                    )
+                    Button(
+                        onClick = {
+                            try {
+                                accessibilitySettingsLauncher.launch(
+                                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                )
+                            } catch (_: ActivityNotFoundException) {
+                                status = "Accessibility settings aren’t available on this device."
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (accessibilityEnabled) Color(0xFF343B50) else Teal
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            if (accessibilityEnabled) "Accessibility text entry is on" else "Set up text entry",
+                            color = if (accessibilityEnabled) Color.White else Midnight
+                        )
+                    }
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("QUICK START", color = Muted, fontSize = 11.sp, letterSpacing = 1.4.sp)
+                Spacer(Modifier.weight(1f))
+                Text("Try a command", color = Muted, fontSize = 11.sp)
+            }
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Suggestion("Open WhatsApp") { handleCommand("open WhatsApp") }
+                Suggestion("Show apps") { handleCommand("show apps") }
+                Suggestion("Open Contacts") { handleCommand("open contacts") }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("YOUR APPS", color = Muted, fontSize = 11.sp, letterSpacing = 1.4.sp)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    if (expandedApps) "Show less" else "See all",
+                    color = Teal,
+                    fontSize = 12.sp,
+                    modifier = Modifier.clickable { expandedApps = !expandedApps }
+                )
+            }
+            val visibleApps = if (expandedApps) apps else apps.take(6)
+            visibleApps.chunked(2).forEach { rowApps ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    rowApps.forEach { app ->
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    if (openApp(app.name)) reply("Opening ${app.name}.")
+                                    else reply("I couldn’t open ${app.name}.")
+                                },
+                            colors = CardDefaults.cardColors(containerColor = Panel),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .background(Teal.copy(alpha = 0.14f), RoundedCornerShape(11.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(app.name.take(1).uppercase(), color = Teal, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(Modifier.width(9.dp))
+                                Text(app.name, color = Color.White, fontSize = 13.sp, maxLines = 1)
+                            }
+                        }
+                    }
+                    if (rowApps.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+
+            Text("RECENT", color = Muted, fontSize = 11.sp, letterSpacing = 1.4.sp)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Panel),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    messages.takeLast(4).forEach { message ->
+                        Text(
+                            message,
+                            color = if (message.startsWith("You:")) Muted else Color.White,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Type a command…", color = Muted) },
+                    shape = RoundedCornerShape(22.dp),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { handleCommand(draft) })
+                )
+                Spacer(Modifier.width(8.dp))
+                IconButton(
+                    onClick = { handleCommand(draft) },
+                    modifier = Modifier
+                        .size(52.dp)
+                        .background(Teal, CircleShape)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send command", tint = Midnight)
+                }
+            }
+            Text(
+                "Your device handles recognition. Messages and calls always need your review.",
+                color = Muted,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickAction(
+    label: String,
+    icon: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier.clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = Panel),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 13.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.material3.LocalContentColor provides Teal
+                ) { icon() }
+            }
+            Text(label, color = Color.White, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun Suggestion(label: String, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.clickable(onClick = onClick),
+        color = Panel,
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Text(label, color = Teal, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp))
+    }
+}
