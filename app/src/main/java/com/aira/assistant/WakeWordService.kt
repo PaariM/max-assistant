@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -177,13 +178,13 @@ class WakeWordService : Service() {
             return
         }
 
-        if (command.startsWith("open ", ignoreCase = true)) {
-            val appName = command.substringAfter(' ').trim().trimEnd('.', ',', '!', '?')
-            if (appName.isBlank()) {
-                openAssistantWithCommand(command, "Say the name of the app you want to open.")
-                return
-            }
-            val appIntent = findAppLaunchIntent(appName)
+        val openRequest = Regex(
+            """^(?:please\s+)?(?:(?:open|launch|start|run)\s+|go\s+to\s+)(.+)$""",
+            RegexOption.IGNORE_CASE
+        ).matchEntire(command.trim())
+        if (openRequest != null) {
+            val appName = openRequest.groupValues[1].trim().trimEnd('.', ',', '!', '?')
+            val appIntent = findInstalledAppLaunchIntent(this, appName)
             if (appIntent != null) {
                 try {
                     startActivity(appIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -192,6 +193,8 @@ class WakeWordService : Service() {
                         message = "If Android blocks the launch, tap to open it.",
                         targetIntent = appIntent
                     )
+                } catch (_: ActivityNotFoundException) {
+                    openAssistantWithCommand(command, "Android couldn’t launch $appName. Open Max and choose it from the app list.")
                 } catch (_: SecurityException) {
                     postAssistantNotification(
                         title = "Tap to open $appName",
@@ -200,25 +203,12 @@ class WakeWordService : Service() {
                     )
                 }
             } else {
-                openAssistantWithCommand(command, "I couldn’t find $appName. Tap to see the app list.")
+                openAssistantWithCommand(command, "I couldn’t find $appName. Open Max and say “show apps” to view available apps.")
             }
             return
         }
 
         openAssistantWithCommand(command, "Tap to review your recognized command.")
-    }
-
-    private fun findAppLaunchIntent(appName: String): Intent? {
-        val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        val apps = packageManager.queryIntentActivities(launcherIntent, 0)
-        val app = apps.firstOrNull {
-            it.loadLabel(packageManager).toString().equals(appName, ignoreCase = true)
-        } ?: apps.firstOrNull {
-            it.loadLabel(packageManager).toString().startsWith(appName, ignoreCase = true)
-        } ?: apps.firstOrNull {
-            it.loadLabel(packageManager).toString().contains(appName, ignoreCase = true)
-        } ?: return null
-        return packageManager.getLaunchIntentForPackage(app.activityInfo.packageName)
     }
 
     private fun openAssistantWithCommand(command: String, message: String) {

@@ -24,9 +24,19 @@
   }
 
   function openWhatsApp(text = "") {
-    const url = new URL("https://wa.me/");
-    if (text) url.searchParams.set("text", text);
-    window.location.assign(url.href);
+    const webUrl = new URL("https://wa.me/");
+    if (text) webUrl.searchParams.set("text", text);
+    const isAndroid = /android/i.test(navigator.userAgent);
+    if (isAndroid) {
+      const intentUrl = new URL(
+        `intent://send${text ? `?text=${encodeURIComponent(text)}` : ""}` +
+        `#Intent;scheme=whatsapp;package=com.whatsapp;` +
+        `S.browser_fallback_url=${encodeURIComponent(webUrl.href)};end`
+      );
+      window.location.assign(intentUrl.href);
+    } else {
+      window.location.assign(webUrl.href);
+    }
   }
 
   async function shareText(text) {
@@ -101,9 +111,9 @@
         reply("What would you like to send?");
       }
     } else if (lower === "help") {
-      reply("Try: open WhatsApp, open WhatsApp and type hello, send hello via WhatsApp, call, or share hello.");
+      reply("Try: open WhatsApp, send hello via WhatsApp, call a number, or share text. To launch other installed apps, use the Android Max app.");
     } else {
-      reply("I can open WhatsApp, prepare a message to share, or open the dialer. Browsers can’t launch arbitrary apps.");
+      reply("I can open WhatsApp, prepare a message to share, or open the dialer. To open any installed app by voice, install Max for Android; mobile browsers cannot discover or launch arbitrary apps.");
     }
   }
 
@@ -130,7 +140,7 @@
     recognition.onerror = event => {
       setStatus(event.error === "not-allowed"
         ? "Microphone permission was denied. Allow it in your browser settings."
-        : "Voice recognition stopped. Try again or type your request.");
+        : "Voice recognition stopped. Check microphone and speech-service permissions, then try again.");
     };
     recognition.onend = () => {
       micButton.disabled = false;

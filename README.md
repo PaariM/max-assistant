@@ -10,7 +10,7 @@ Open this folder in Android Studio and run the `app` configuration on an Android
 
 The progressive web app (PWA) lives in `site/app/`. It adapts to phone, tablet, and desktop screens; can be installed from a supported browser; and caches its app shell for offline reopening after its first successful load. It accepts voice requests while open, speaks replies, shares text, opens WhatsApp's web handoff, and opens the phone dialer. It has no typed-command box or conversation-history panel.
 
-The browser app cannot launch arbitrary installed apps, inspect contacts, enter text into another app, or listen for “Hey Max” in the background. Speech recognition support and language coverage depend on the browser and its speech service.
+The browser app attempts to hand WhatsApp requests to the Android WhatsApp app, with its web link as a fallback. Mobile browsers cannot enumerate or launch arbitrary installed apps, inspect contacts, enter text into another app, or listen for “Hey Max” in the background. Install the Android APK to voice-launch apps shown in the device launcher. Speech recognition support and language coverage depend on the browser and its speech service.
 
 On iPhone, open the deployed page in Safari, tap **Share**, then **Add to Home Screen**. On Android/desktop, use the browser's **Install app** control when offered. All versions still require a website host; GitHub Pages setup is below.
 
@@ -33,7 +33,7 @@ GitHub Actions release and Pages workflows are also included under `.github/work
 - Prepare text for WhatsApp or another share-compatible app. The user chooses a chat and reviews/sends the message.
 - Select a contact from Android's system picker and open their WhatsApp chat with a message draft ready for review.
 
-Examples: “Open WhatsApp”, “Open chat with Haris”, “Say good morning to Haris”, “Open WhatsApp and type I’ll be there soon”, “Send running late via WhatsApp”, “Call 5551234567”, and “Show apps”. For a contact-specific WhatsApp message, Max asks you to choose the contact in Android's picker, opens that chat with a draft, and leaves sending to you.
+Examples: “Open WhatsApp”, “launch YouTube”, “start my Instagram app”, “go to Maps”, “Open chat with Haris”, “Say good morning to Haris”, “Open WhatsApp and type I’ll be there soon”, “Send running late via WhatsApp”, “Call 5551234567”, and “Show apps”. Voice app launching works in the Android app for apps available in the Android launcher. A browser cannot inspect the installed-app list.
 
 To turn on the wake phrase, tap **Enable “Hey Max” wake phrase** and grant microphone and notification permissions. When it hears the phrase, Max posts a notification; tap it to review any recognized follow-up command.
 

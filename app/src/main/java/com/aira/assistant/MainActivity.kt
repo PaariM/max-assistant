@@ -80,6 +80,33 @@ private val Muted = Color(0xFF9BA4B9)
 
 data class InstalledApp(val name: String, val packageName: String)
 
+fun findInstalledAppLaunchIntent(context: Context, requestedName: String): Intent? {
+    val cleanedRequest = requestedName
+        .trim()
+        .replace(Regex("""^(?:please\s+)?(?:(?:open|launch|start|run)\s+|go\s+to\s+)""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""^(?:my|the)\s+""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""\s+(?:app|application|please)$""", RegexOption.IGNORE_CASE), "")
+        .trim()
+    val query = cleanedRequest.lowercase(Locale.ROOT)
+        .replace(Regex("""[^\p{L}\p{N}]"""), "")
+    if (query.isBlank()) return null
+
+    val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    val candidates = context.packageManager.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
+        .mapNotNull { result ->
+            val activityInfo = result.activityInfo ?: return@mapNotNull null
+            val label = result.loadLabel(context.packageManager).toString()
+            val normalizedLabel = label.lowercase(Locale.ROOT)
+                .replace(Regex("""[^\p{L}\p{N}]"""), "")
+            Triple(label, normalizedLabel, activityInfo.packageName)
+        }
+    val match = candidates.firstOrNull { it.second == query }
+        ?: candidates.firstOrNull { it.second.startsWith(query) }
+        ?: candidates.firstOrNull { it.second.contains(query) }
+        ?: return null
+    return context.packageManager.getLaunchIntentForPackage(match.third)
+}
+
 private data class SpeechLanguage(val tag: String, val name: String)
 
 private val speechLanguages = listOf(
@@ -388,15 +415,15 @@ private fun AssistantScreen(initialCommand: String?) {
     }
 
     fun openApp(query: String): Boolean {
-        val needle = query.trim().lowercase(Locale.getDefault())
-        val app = apps.firstOrNull { it.name.lowercase(Locale.getDefault()) == needle }
-            ?: apps.firstOrNull { it.name.lowercase(Locale.getDefault()).startsWith(needle) }
-            ?: apps.firstOrNull { it.name.lowercase(Locale.getDefault()).contains(needle) }
-            ?: return false
-        val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
-            ?: return false
-        context.startActivity(launchIntent)
-        return true
+        val launchIntent = findInstalledAppLaunchIntent(context, query) ?: return false
+        return try {
+            context.startActivity(launchIntent)
+            true
+        } catch (_: ActivityNotFoundException) {
+            false
+        } catch (_: SecurityException) {
+            false
+        }
     }
 
     fun shareText(text: String, packageName: String? = null) {
@@ -491,12 +518,12 @@ private fun AssistantScreen(initialCommand: String?) {
                 expandedApps = true
                 reply("Here are the apps available to open.")
             }
-            lower.startsWith("open ") -> {
-                val appName = command.substringAfter(' ').trim()
-                if (openApp(appName)) {
-                    reply("Opening $appName.")
+            lower.startsWith("open ") || lower.startsWith("please open ") || lower.startsWith("launch ") ||
+                lower.startsWith("start ") || lower.startsWith("run ") || lower.startsWith("go to ") -> {
+                if (openApp(command)) {
+                    reply("Opening ${command.substringAfter(' ').trim()}.")
                 } else {
-                    reply("I couldn’t find an installed app called $appName. You can browse the app list below.")
+                    reply("I couldn’t match that to an installed app. Say “show apps” to see the available app names.")
                 }
             }
             lower.startsWith("call ") -> {
