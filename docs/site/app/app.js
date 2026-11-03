@@ -1,6 +1,5 @@
 (() => {
   const status = document.querySelector("#status");
-  const input = document.querySelector("#command");
   const messages = document.querySelector("#messages");
   const language = document.querySelector("#language");
   const micButton = document.querySelector("#mic-button");
@@ -48,20 +47,6 @@
     window.location.assign(url.href);
   }
 
-  function openDialer() {
-    const phone = window.prompt("Enter a phone number to review in your dialer:");
-    if (!phone) {
-      setStatus("Call cancelled.");
-      return;
-    }
-    const number = phone.replace(/[^\d+*#,;]/g, "");
-    if (!number) {
-      reply("That doesn’t look like a phone number. Try again.");
-      return;
-    }
-    window.location.assign(`tel:${number}`);
-  }
-
   async function shareText(text) {
     if (navigator.share) {
       try {
@@ -84,12 +69,19 @@
     const command = rawCommand.trim();
     if (!command) return;
     addMessage(command, true);
-    input.value = "";
+    const addressedMessage = command
+      .replace(/\s+(?:chat|on whatsapp|via whatsapp|in whatsapp)$/i, "")
+      .match(/^(?:say|send|text|message)\s+(.+?)\s+to\s+(.+)$/i);
     const openWhatsAppMatch = command.match(/^open whatsapp(?: and (?:type|write|send) (.+))?$/i);
     const whatsAppMessageMatch = command.match(/^(?:send|message) (.+?)\s+(?:on|via|in|to) whatsapp$/i);
     const lower = command.toLocaleLowerCase();
 
-    if (openWhatsAppMatch) {
+    if (addressedMessage) {
+      const text = addressedMessage[1].trim();
+      const contact = addressedMessage[2].trim();
+      reply(`I can’t access your contacts in a browser. Opening WhatsApp with “${text}” ready; choose ${contact} and review it before sending.`);
+      openWhatsApp(text);
+    } else if (openWhatsAppMatch) {
       const text = openWhatsAppMatch[1]?.trim() ?? "";
       reply(text
         ? "Opening WhatsApp with your text ready. Choose a chat and review it before sending."
@@ -101,7 +93,7 @@
     } else if (lower === "call" || lower.startsWith("call ")) {
       const requestedNumber = command.slice(4).trim();
       if (!requestedNumber) {
-        openDialer();
+        reply("Say “call” followed by the phone number. I won’t open a text-entry prompt.");
       } else {
         const number = requestedNumber.replace(/[^\d+*#,;]/g, "");
         if (!number) {
@@ -136,7 +128,7 @@
 
   function listen() {
     if (!SpeechRecognition) {
-      setStatus("Voice recognition isn’t supported by this browser. You can type instead.");
+      setStatus("Voice recognition isn’t supported by this browser. Try a supported browser or the Android app.");
       return;
     }
     const recognition = new SpeechRecognition();
@@ -149,10 +141,9 @@
     recognition.onresult = event => {
       const transcript = event.results?.[0]?.[0]?.transcript?.trim();
       if (transcript) {
-        input.value = transcript;
-        setStatus("Heard you. Review your request, then tap send.");
+        handleCommand(transcript);
       } else {
-        setStatus("I didn’t catch that. Try again or type your request.");
+        setStatus("I didn’t catch that. Tap the microphone and try again.");
       }
     };
     recognition.onerror = event => {
@@ -173,10 +164,6 @@
     }
   }
 
-  document.querySelector("#composer").addEventListener("submit", event => {
-    event.preventDefault();
-    handleCommand(input.value);
-  });
   micButton.addEventListener("click", listen);
   document.querySelector("#clear-button").addEventListener("click", () => {
     messages.replaceChildren();
@@ -185,7 +172,7 @@
   document.querySelectorAll("[data-command]").forEach(button => {
     button.addEventListener("click", () => {
       const command = button.dataset.command;
-      if (command === "Call") openDialer();
+      if (command === "Call") reply("Say “call” followed by the phone number.");
       else if (command === "Share") handleCommand("Share");
       else handleCommand(command);
     });

@@ -39,7 +39,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Mic
@@ -48,10 +47,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
@@ -67,11 +67,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.heightIn
 import java.util.Locale
 
 private val Midnight = Color(0xFF101322)
@@ -81,12 +80,84 @@ private val Muted = Color(0xFF9BA4B9)
 
 data class InstalledApp(val name: String, val packageName: String)
 
+private data class SpeechLanguage(val tag: String, val name: String)
+
+private val speechLanguages = listOf(
+    SpeechLanguage("en-US", "English"),
+    SpeechLanguage("hi-IN", "हिन्दी"),
+    SpeechLanguage("es-ES", "Español"),
+    SpeechLanguage("fr-FR", "Français"),
+    SpeechLanguage("de-DE", "Deutsch"),
+    SpeechLanguage("pt-BR", "Português"),
+    SpeechLanguage("ar-SA", "العربية"),
+    SpeechLanguage("zh-CN", "中文"),
+    SpeechLanguage("ja-JP", "日本語"),
+    SpeechLanguage("ko-KR", "한국어"),
+    SpeechLanguage("it-IT", "Italiano"),
+    SpeechLanguage("ru-RU", "Русский"),
+    SpeechLanguage("bn-BD", "বাংলা"),
+    SpeechLanguage("ur-PK", "اردو"),
+    SpeechLanguage("pa-IN", "ਪੰਜਾਬੀ"),
+    SpeechLanguage("ta-IN", "தமிழ்"),
+    SpeechLanguage("te-IN", "తెలుగు"),
+    SpeechLanguage("mr-IN", "मराठी"),
+    SpeechLanguage("gu-IN", "ગુજરાતી"),
+    SpeechLanguage("kn-IN", "ಕನ್ನಡ"),
+    SpeechLanguage("ml-IN", "മലയാളം"),
+    SpeechLanguage("id-ID", "Bahasa Indonesia"),
+    SpeechLanguage("tr-TR", "Türkçe"),
+    SpeechLanguage("vi-VN", "Tiếng Việt"),
+    SpeechLanguage("th-TH", "ไทย"),
+    SpeechLanguage("nl-NL", "Nederlands"),
+    SpeechLanguage("pl-PL", "Polski"),
+    SpeechLanguage("uk-UA", "Українська"),
+    SpeechLanguage("fa-IR", "فارسی"),
+    SpeechLanguage("sw-KE", "Kiswahili")
+)
+
 private fun isAccessibilityServiceEnabled(context: Context): Boolean {
     val serviceName = ComponentName(context, AiraAccessibilityService::class.java).flattenToString()
     return Settings.Secure.getString(
         context.contentResolver,
         Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
     ).orEmpty().split(':').any { it.equals(serviceName, ignoreCase = true) }
+}
+
+private fun openWhatsAppDraft(context: Context, packageName: String, phoneNumber: String, message: String): Boolean {
+    val digits = phoneNumber.filter(Char::isDigit)
+    if (digits.isBlank()) return false
+    val uri = Uri.Builder()
+        .scheme("https")
+        .authority("wa.me")
+        .appendPath(digits)
+        .apply { if (message.isNotBlank()) appendQueryParameter("text", message) }
+        .build()
+    return try {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, uri)
+                .setPackage(packageName)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    }
+}
+
+private fun shareMessage(context: Context, text: String, packageName: String? = null): Boolean {
+    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+        packageName?.let(::setPackage)
+    }
+    return try {
+        context.startActivity(
+            Intent.createChooser(sendIntent, "Choose a chat and review your message")
+        )
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    }
 }
 
 class MainActivity : ComponentActivity() {
@@ -113,11 +184,11 @@ class MainActivity : ComponentActivity() {
 private fun AssistantScreen(initialCommand: String?) {
     val context = LocalContext.current
     val activity = context as Activity
-    var draft by remember { mutableStateOf(initialCommand.orEmpty()) }
+    var pendingVoiceCommand by remember { mutableStateOf(initialCommand) }
     var status by remember {
         mutableStateOf(
             if (initialCommand.isNullOrBlank()) "Ready when you are"
-            else "Hey Max heard you. Review the command, then tap send."
+            else "Hey Max heard you. Processing your voice request."
         )
     }
     var wakeActive by remember {
@@ -128,6 +199,15 @@ private fun AssistantScreen(initialCommand: String?) {
     }
     var accessibilityEnabled by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
     var expandedApps by remember { mutableStateOf(false) }
+    var pendingWhatsAppMessage by remember { mutableStateOf<String?>(null) }
+    var speechLanguageTag by remember {
+        mutableStateOf(
+            context.getSharedPreferences(WakeWordService.PREFERENCES_NAME, Context.MODE_PRIVATE)
+                .getString(WakeWordService.PREFERENCE_LANGUAGE, Locale.getDefault().toLanguageTag())
+                ?: Locale.getDefault().toLanguageTag()
+        )
+    }
+    var speechLanguageMenuExpanded by remember { mutableStateOf(false) }
     var messages by remember {
         mutableStateOf(listOf("Hi! I’m Max. What can I help you do?"))
     }
@@ -152,8 +232,8 @@ private fun AssistantScreen(initialCommand: String?) {
             ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
             ?.firstOrNull()
         if (result.resultCode == Activity.RESULT_OK && !spokenText.isNullOrBlank()) {
-            draft = spokenText
-            status = "Heard you. Tap send to confirm."
+            pendingVoiceCommand = spokenText
+            status = "Heard you. Working on it."
         } else {
             status = "I didn’t catch that. Try again."
         }
@@ -162,10 +242,52 @@ private fun AssistantScreen(initialCommand: String?) {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         val contactUri = result.data?.data
-        status = if (result.resultCode == Activity.RESULT_OK && contactUri != null) {
-            "Contact selected. Choose Call or Message in Contacts."
+        val message = pendingWhatsAppMessage
+        pendingWhatsAppMessage = null
+        if (result.resultCode != Activity.RESULT_OK || contactUri == null) {
+            status = "Contact selection cancelled."
+        } else if (message != null) {
+            val phoneNumber = context.contentResolver.query(
+                contactUri,
+                arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+            val packageName = when {
+                apps.any { it.packageName == "com.whatsapp" } -> "com.whatsapp"
+                apps.any { it.packageName == "com.whatsapp.w4b" } -> "com.whatsapp.w4b"
+                else -> null
+            }
+            if (phoneNumber.isNullOrBlank()) {
+                status = "That contact doesn’t have a phone number to open in WhatsApp."
+                messages = messages + status
+            } else if (packageName == null) {
+                status = "WhatsApp isn’t installed. You can still share the message with another app."
+                messages = messages + status
+                if (message.isNotBlank() && !shareMessage(context, message)) {
+                    status = "No app is available to share that message."
+                    messages = messages + status
+                }
+            } else if (openWhatsAppDraft(context, packageName, phoneNumber, message)) {
+                status = if (message.isBlank()) {
+                    "WhatsApp chat opened. Review anything you send."
+                } else {
+                    "WhatsApp opened with your draft. Review it and tap Send yourself."
+                }
+                messages = messages + status
+            } else {
+                status = "I couldn’t open that WhatsApp chat. You can still share the text with another app."
+                messages = messages + status
+                if (message.isNotBlank() && !shareMessage(context, message)) {
+                    status = "No app is available to share that message."
+                    messages = messages + status
+                }
+            }
         } else {
-            "Contacts closed."
+            status = "Contact selected. Choose Call or Message in Contacts."
         }
     }
     val accessibilitySettingsLauncher = rememberLauncherForActivityResult(
@@ -217,7 +339,7 @@ private fun AssistantScreen(initialCommand: String?) {
     fun startListening() {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, speechLanguageTag)
             putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to Max")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
         }
@@ -288,15 +410,34 @@ private fun AssistantScreen(initialCommand: String?) {
     }
 
     fun shareText(text: String, packageName: String? = null) {
-        val sendIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, text)
-            packageName?.let(::setPackage)
-        }
-        try {
-            activity.startActivity(Intent.createChooser(sendIntent, "Choose a chat and review your message"))
-        } catch (_: ActivityNotFoundException) {
+        if (!shareMessage(activity, text, packageName)) {
             reply("I couldn’t find an app that can send that message.")
+        }
+    }
+
+    fun openWhatsAppContact(message: String, contact: String) {
+        val packageName = when {
+            apps.any { it.packageName == "com.whatsapp" } -> "com.whatsapp"
+            apps.any { it.packageName == "com.whatsapp.w4b" } -> "com.whatsapp.w4b"
+            else -> null
+        }
+        if (packageName == null) {
+            reply("WhatsApp isn’t installed.")
+            if (message.isNotBlank()) shareText(message)
+            return
+        }
+        pendingWhatsAppMessage = message
+        reply("Choose $contact in Contacts. WhatsApp will open with your draft for you to review; Max won’t send it.")
+        try {
+            contactsLauncher.launch(
+                Intent(
+                    Intent.ACTION_PICK,
+                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+                )
+            )
+        } catch (_: ActivityNotFoundException) {
+            pendingWhatsAppMessage = null
+            reply("No contacts picker is available. You can open WhatsApp and choose the chat yourself.")
         }
     }
 
@@ -304,8 +445,23 @@ private fun AssistantScreen(initialCommand: String?) {
         val command = rawCommand.trim()
         if (command.isEmpty()) return
         messages = messages + "You: $command"
-        draft = ""
         val lower = command.lowercase(Locale.getDefault())
+
+        val addressedCommand = command.replace(
+            Regex("""\s+(?:chat|on whatsapp|via whatsapp|in whatsapp)$""", RegexOption.IGNORE_CASE),
+            ""
+        )
+        val addressedMessage = Regex(
+            """^(?:say|send|text|message)\s+(.+?)\s+to\s+(.+)$""",
+            RegexOption.IGNORE_CASE
+        ).matchEntire(addressedCommand)
+        if (addressedMessage != null) {
+            openWhatsAppContact(
+                addressedMessage.groupValues[1].trim(),
+                addressedMessage.groupValues[2].trim()
+            )
+            return
+        }
 
         val whatsappMessage = Regex(
             """^(?:open\s+whatsapp\s+and\s+(?:type|write|send)|(?:send|message))\s+(.+?)(?:\s+(?:on|via|in|to)\s+whatsapp)?$""",
@@ -335,6 +491,9 @@ private fun AssistantScreen(initialCommand: String?) {
         }
 
         when {
+            lower.startsWith("open chat with ") -> {
+                openWhatsAppContact("", command.substringAfter("open chat with ", "").trim())
+            }
             lower == "contacts" || lower == "open contacts" -> openContacts()
             lower.startsWith("type ") || lower.startsWith("write ") || lower.startsWith("enter ") -> {
                 reply("For cross-app typing, enable Max’s Accessibility service, focus the text field, then say “Hey Max, type …”. I never press Send.")
@@ -372,6 +531,12 @@ private fun AssistantScreen(initialCommand: String?) {
             }
             else -> reply("I can open installed apps, prepare a message to share, open Contacts, or bring up the dialer.")
         }
+    }
+
+    LaunchedEffect(pendingVoiceCommand) {
+        val command = pendingVoiceCommand ?: return@LaunchedEffect
+        pendingVoiceCommand = null
+        handleCommand(command)
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = Midnight) {
@@ -437,11 +602,46 @@ private fun AssistantScreen(initialCommand: String?) {
                         Spacer(Modifier.height(14.dp))
                         Text(status, color = Color.White, fontWeight = FontWeight.Medium)
                         Text(
-                            "Tap the mic and speak in your device language",
+                            "Speech recognition availability depends on your device",
                             color = Muted,
                             fontSize = 12.sp,
                             modifier = Modifier.padding(top = 5.dp)
                         )
+                        Box {
+                            Button(
+                                onClick = { speechLanguageMenuExpanded = true },
+                                modifier = Modifier.padding(top = 10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF30374D)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    "Language: ${speechLanguages.firstOrNull { it.tag == speechLanguageTag }?.name ?: speechLanguageTag}",
+                                    color = Color.White
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = speechLanguageMenuExpanded,
+                                onDismissRequest = { speechLanguageMenuExpanded = false },
+                                modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())
+                            ) {
+                                speechLanguages.forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text(option.name) },
+                                        onClick = {
+                                            speechLanguageTag = option.tag
+                                            speechLanguageMenuExpanded = false
+                                            context.getSharedPreferences(
+                                                WakeWordService.PREFERENCES_NAME,
+                                                Context.MODE_PRIVATE
+                                            ).edit()
+                                                .putString(WakeWordService.PREFERENCE_LANGUAGE, option.tag)
+                                                .apply()
+                                            status = "Speech language set to ${option.name}."
+                                        }
+                                    )
+                                }
+                            }
+                        }
                         Button(
                             onClick = ::startListening,
                             modifier = Modifier.padding(top = 15.dp),
@@ -619,29 +819,8 @@ private fun AssistantScreen(initialCommand: String?) {
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("Type a command…", color = Muted) },
-                    shape = RoundedCornerShape(22.dp),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { handleCommand(draft) })
-                )
-                Spacer(Modifier.width(8.dp))
-                IconButton(
-                    onClick = { handleCommand(draft) },
-                    modifier = Modifier
-                        .size(52.dp)
-                        .background(Teal, CircleShape)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send command", tint = Midnight)
-                }
-            }
             Text(
-                "Your device handles recognition. Messages and calls always need your review.",
+                "Voice requests run after recognition. Review calls and messages before confirming them.",
                 color = Muted,
                 fontSize = 11.sp,
                 modifier = Modifier.padding(bottom = 10.dp)

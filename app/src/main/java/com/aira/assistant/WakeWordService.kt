@@ -99,7 +99,12 @@ class WakeWordService : Service() {
         if (listening) return
         val request = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE,
+                getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
+                    .getString(PREFERENCE_LANGUAGE, Locale.getDefault().toLanguageTag())
+                    ?: Locale.getDefault().toLanguageTag()
+            )
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
@@ -310,6 +315,7 @@ class WakeWordService : Service() {
         const val EXTRA_COMMAND = "com.aira.assistant.extra.WAKE_COMMAND"
         const val PREFERENCES_NAME = "aira_assistant"
         const val PREFERENCE_LISTENING = "wake_phrase_listening"
+        const val PREFERENCE_LANGUAGE = "speech_language"
 
         private const val CHANNEL_ID = "max_wake_phrase"
         private const val NOTIFICATION_ID = 3101

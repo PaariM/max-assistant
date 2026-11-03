@@ -69,10 +69,6 @@ h1 span { color: transparent; background: linear-gradient(90deg,var(--mint),#a4d
 .user-message p { padding: 9px 12px; border-radius: 14px 14px 3px 14px; background: #2a3447; }
 .assistant-message p { padding: 8px 0; }
 .avatar { display: grid; width: 25px; height: 25px; flex: 0 0 auto; place-items: center; border-radius: 9px; background: linear-gradient(140deg,var(--mint),var(--lilac)); color: #141725; font-size: 12px; font-weight: 800; }
-.composer { display: flex; gap: 9px; margin-top: 10px; }
-.composer input { min-width: 0; flex: 1; padding: 13px 15px; border: 1px solid rgba(255,255,255,.1); border-radius: 15px; outline: none; background: var(--panel); color: var(--text); font-size: 14px; }
-.composer input:focus { border-color: rgba(120,226,210,.6); }
-.composer button { width: 48px; flex: 0 0 auto; border: 0; border-radius: 15px; background: var(--mint); color: #121725; font-size: 23px; cursor: pointer; }
 .notice { margin: 20px 0; padding: 14px 16px; border: 1px solid rgba(167,152,255,.15); border-radius: 15px; background: rgba(167,152,255,.055); }
 .notice strong { font-size: 12px; }
 .notice p { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }

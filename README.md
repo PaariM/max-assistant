@@ -8,9 +8,9 @@ Open this folder in Android Studio and run the `app` configuration on an Android
 
 ## Browser app
 
-The progressive web app (PWA) lives in `site/app/`. It adapts to phone, tablet, and desktop screens; can be installed from a supported browser; and caches its app shell for offline reopening after its first successful load. It can use browser speech recognition while open, speak replies, share text, open WhatsApp's web handoff, and open the phone dialer.
+The progressive web app (PWA) lives in `site/app/`. It adapts to phone, tablet, and desktop screens; can be installed from a supported browser; and caches its app shell for offline reopening after its first successful load. It accepts voice requests while open, speaks replies, shares text, opens WhatsApp's web handoff, and opens the phone dialer. It has no typed-command box.
 
-The browser app cannot launch arbitrary installed apps, inspect contacts, enter text into another app, or listen for “Hey Max” in the background. Speech recognition support depends on the browser and its speech service; the app's command examples currently use English.
+The browser app cannot launch arbitrary installed apps, inspect contacts, enter text into another app, or listen for “Hey Max” in the background. Speech recognition support and language coverage depend on the browser and its speech service.
 
 On iPhone, open the deployed page in Safari, tap **Share**, then **Add to Home Screen**. On Android/desktop, use the browser's **Install app** control when offered. All versions still require a website host; GitHub Pages setup is below.
 
@@ -24,14 +24,16 @@ GitHub Actions release and Pages workflows are also included under `.github/work
 
 ## What it can do
 
-- Start a device-provided speech recognition prompt, using the device's current language.
+- Start a device-provided speech recognition prompt using the selected language.
+- Choose from 30 speech-recognition languages; availability depends on the device's speech service.
 - Optionally listen for “Hey Max” through a microphone foreground service with a persistent notification and a stop control.
 - Speak assistant responses using Android text-to-speech.
 - Browse and launch installed apps visible through Android's launcher-intent package visibility.
 - Open Contacts without requesting broad contacts access, or open the dialer for a user-reviewed call.
 - Prepare text for WhatsApp or another share-compatible app. The user chooses a chat and reviews/sends the message.
+- Select a contact from Android's system picker and open their WhatsApp chat with a message draft ready for review.
 
-Examples: “Open WhatsApp”, “Open WhatsApp and type I’ll be there soon”, “Send running late via WhatsApp”, “Call 5551234567”, and “Show apps”.
+Examples: “Open WhatsApp”, “Open chat with Haris”, “Say good morning to Haris”, “Open WhatsApp and type I’ll be there soon”, “Send running late via WhatsApp”, “Call 5551234567”, and “Show apps”. For a contact-specific WhatsApp message, Max asks you to choose the contact in Android's picker, opens that chat with a draft, and leaves sending to you.
 
 To turn on the wake phrase, tap **Enable “Hey Max” wake phrase** and grant microphone and notification permissions. When it hears the phrase, Max posts a notification; tap it to review any recognized follow-up command.
 
@@ -45,4 +47,4 @@ Android displays a system warning when an Accessibility service is enabled becau
 
 Speech recognition availability and language coverage depend on the speech service installed on the device. Wake phrase listening is optional, uses a persistent foreground-service notification, and can be stopped from the notification or app. It prefers on-device recognition where available; otherwise Android may use the device's configured recognition service, which can process audio remotely. Wake phrase detection is best-effort and may vary by device and language. Android does not allow an ordinary app to silently type into another app's private chat UI or send messages without user confirmation. WhatsApp sharing opens its handoff flow; the user must select a conversation and send.
 
-The browser app cannot get Android Accessibility access. The Android app's focused-text feature is limited to the currently focused field and never sends messages on your behalf.
+The browser app cannot get Android Accessibility access or inspect device contacts. A browser request such as “say good morning to Haris” prepares the text and asks you to pick the chat in WhatsApp; use the Android app to choose a contact from the system picker. The Android app's focused-text feature is limited to the currently focused field and never sends messages on your behalf.

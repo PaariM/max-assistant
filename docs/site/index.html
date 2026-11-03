@@ -15,7 +15,7 @@
           <span class="brand-mark">M</span>
           <span>Max</span>
         </a>
-        <span class="platform">ANDROID APP</span>
+        <a class="top-install" id="top-install" href="#download">Install Max</a>
       </header>
 
       <section class="hero">
@@ -59,12 +59,17 @@
         const repo = pathParts[0] || `${owner}.github.io`;
         const isGitHubPages = window.location.hostname.endsWith(".github.io");
         const download = document.getElementById("download");
+        const topInstall = document.getElementById("top-install");
         const note = document.getElementById("download-note");
         if (isGitHubPages && owner && repo) {
-          download.href = `https://github.com/${owner}/${repo}/releases/latest/download/MaxAssistant.apk`;
+          const apkUrl = `https://github.com/${owner}/${repo}/releases/latest/download/MaxAssistant.apk`;
+          download.href = apkUrl;
+          topInstall.href = apkUrl;
         } else {
           download.setAttribute("aria-disabled", "true");
           download.addEventListener("click", event => event.preventDefault());
+          topInstall.setAttribute("aria-disabled", "true");
+          topInstall.addEventListener("click", event => event.preventDefault());
           note.textContent = "APK download will be available after publishing a release";
         }
       })();

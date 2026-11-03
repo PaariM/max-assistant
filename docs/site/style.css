@@ -28,6 +28,21 @@ main { width: min(100% - 40px, 1040px); margin: 0 auto; }
   justify-content: space-between;
 }
 
+.top-install {
+  padding: 10px 16px;
+  border: 1px solid rgba(120,226,210,.4);
+  border-radius: 12px;
+  background: rgba(120,226,210,.1);
+  color: var(--mint);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background .18s ease, transform .18s ease;
+}
+
+.top-install:hover { transform: translateY(-1px); background: rgba(120,226,210,.17); }
+.top-install[aria-disabled="true"] { opacity: .6; cursor: default; }
+
 .brand {
   display: inline-flex;
   align-items: center;
