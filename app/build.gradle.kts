@@ -17,8 +17,8 @@ android {
         applicationId = "com.aira.assistant"
         minSdk = 26
         targetSdk = 35
-        versionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull?.toIntOrNull() ?: 1
-        versionName = providers.environmentVariable("VERSION_NAME").orNull ?: "1.0"
+        versionCode = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull?.toIntOrNull() ?: 5
+        versionName = providers.environmentVariable("VERSION_NAME").orNull ?: "1.0.5"
     }
 
     buildFeatures {

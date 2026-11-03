@@ -18,6 +18,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.core.content.ContextCompat
 import java.util.Locale
 
@@ -29,14 +30,41 @@ class WakeWordService : Service() {
     private var recognitionRetryAttempt = 0
     private var textToSpeech: TextToSpeech? = null
     private var textToSpeechReady = false
+    private var speechOutputInProgress = false
     private val restartListening = Runnable { startRecognition() }
     private val clearWaitingForCommand = Runnable { waitingForCommand = false }
+    private val restartAfterSpeech = Runnable {
+        speechOutputInProgress = false
+        handler.removeCallbacks(restartListening)
+        handler.postDelayed(restartListening, SPEECH_RESTART_DELAY_MS)
+    }
 
     override fun onCreate() {
         super.onCreate()
         textToSpeech = TextToSpeech(this) { result ->
             textToSpeechReady = result == TextToSpeech.SUCCESS
-            if (textToSpeechReady) textToSpeech?.language = Locale.US
+            if (textToSpeechReady) {
+                val languageTag = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
+                    .getString(PREFERENCE_LANGUAGE, Locale.getDefault().toLanguageTag())
+                    ?: Locale.getDefault().toLanguageTag()
+                textToSpeech?.language = Locale.forLanguageTag(languageTag)
+                textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) = Unit
+
+                    override fun onDone(utteranceId: String?) {
+                        if (utteranceId?.startsWith(VOICE_UTTERANCE_PREFIX) == true) {
+                            handler.post(restartAfterSpeech)
+                        }
+                    }
+
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(utteranceId: String?) {
+                        if (utteranceId?.startsWith(VOICE_UTTERANCE_PREFIX) == true) {
+                            handler.post(restartAfterSpeech)
+                        }
+                    }
+                })
+            }
         }
     }
 
@@ -100,11 +128,13 @@ class WakeWordService : Service() {
                     val phrase = alternatives.firstOrNull(::containsWakePhrase)
                         ?: alternatives.firstOrNull()
                     if (phrase != null) notifyIfWakePhraseHeard(phrase)
-                    handler.removeCallbacks(restartListening)
-                    handler.postDelayed(
-                        restartListening,
-                        if (waitingForCommand) WAKE_ACK_RETRY_DELAY_MS else RETRY_DELAY_MS
-                    )
+                    if (!speechOutputInProgress) {
+                        handler.removeCallbacks(restartListening)
+                        handler.postDelayed(
+                            restartListening,
+                            if (waitingForCommand) WAKE_ACK_RETRY_DELAY_MS else RETRY_DELAY_MS
+                        )
+                    }
                 }
 
                 override fun onPartialResults(partialResults: Bundle?) = Unit
@@ -168,14 +198,7 @@ class WakeWordService : Service() {
             waitingForCommand = true
             handler.removeCallbacks(clearWaitingForCommand)
             handler.postDelayed(clearWaitingForCommand, COMMAND_TIMEOUT_MS)
-            if (textToSpeechReady) {
-                textToSpeech?.speak(
-                    "I'm listening.",
-                    TextToSpeech.QUEUE_FLUSH,
-                    null,
-                    "max-wake-ack"
-                )
-            }
+            speakResponse("I'm listening.")
             postAssistantNotification(
                 title = "Max heard “Hey Max”",
                 message = "Max is listening for your command now."
@@ -205,6 +228,7 @@ class WakeWordService : Service() {
         ).trim()
         if (typedText != command.trim()) {
             if (AiraAccessibilityService.typeIntoFocusedField(typedText)) {
+                speakResponse("Text added. Review it before sending.")
                 postAssistantNotification(
                     title = "Max added a text draft",
                     message = "Review the focused field. Max did not press Send.",
@@ -229,6 +253,7 @@ class WakeWordService : Service() {
             if (appIntent != null) {
                 try {
                     startActivity(appIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    speakResponse("Opening $appName.")
                     postAssistantNotification(
                         title = "Max is opening $appName",
                         message = "If Android blocks the launch, tap to open it.",
@@ -237,6 +262,7 @@ class WakeWordService : Service() {
                 } catch (_: ActivityNotFoundException) {
                     openAssistantWithCommand(command, "Android couldn’t launch $appName. Open Max and choose it from the app list.")
                 } catch (_: SecurityException) {
+                    speakResponse("Android needs you to tap the notification to open $appName.")
                     postAssistantNotification(
                         title = "Tap to open $appName",
                         message = "Android needs your confirmation to open this app.",
@@ -287,6 +313,7 @@ class WakeWordService : Service() {
         }
         try {
             startActivity(launchIntent)
+            speakResponse("WhatsApp draft ready for $contactName. Review it before sending.")
             postAssistantNotification(
                 title = "WhatsApp draft ready for $contactName",
                 message = "Review the message and tap Send yourself.",
@@ -300,9 +327,24 @@ class WakeWordService : Service() {
     }
 
     private fun openAssistantWithCommand(command: String, message: String) {
+        speakResponse(message)
         postAssistantNotification("Max heard “Hey Max”", message) {
             putExtra(EXTRA_COMMAND, command)
         }
+    }
+
+    private fun speakResponse(text: String) {
+        if (!textToSpeechReady) return
+        speechOutputInProgress = true
+        handler.removeCallbacks(restartListening)
+        handler.removeCallbacks(restartAfterSpeech)
+        textToSpeech?.speak(
+            text,
+            TextToSpeech.QUEUE_FLUSH,
+            null,
+            "$VOICE_UTTERANCE_PREFIX${System.nanoTime()}"
+        )
+        handler.postDelayed(restartAfterSpeech, SPEECH_MAX_DURATION_MS)
     }
 
     private fun postAssistantNotification(
@@ -374,6 +416,7 @@ class WakeWordService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        speechOutputInProgress = false
         waitingForCommand = false
         speechRecognizer?.cancel()
         speechRecognizer?.destroy()
@@ -405,6 +448,9 @@ class WakeWordService : Service() {
         private const val STOP_REQUEST_CODE = 3104
         private const val RETRY_DELAY_MS = 900L
         private const val WAKE_ACK_RETRY_DELAY_MS = 1_500L
+        private const val SPEECH_RESTART_DELAY_MS = 350L
+        private const val SPEECH_MAX_DURATION_MS = 12_000L
+        private const val VOICE_UTTERANCE_PREFIX = "max-voice-"
         private const val MAX_RETRY_DELAY_MS = 30_000L
         private const val MAX_RETRY_SHIFT = 5
         private const val MAX_RECOGNITION_ALTERNATIVES = 3

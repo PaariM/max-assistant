@@ -1,7 +1,5 @@
 (() => {
   const status = document.querySelector("#status");
-  const input = document.querySelector("#command");
-  const messages = document.querySelector("#messages");
   const language = document.querySelector("#language");
   const micButton = document.querySelector("#mic-button");
   const installButton = document.querySelector("#install-button");
@@ -10,22 +8,6 @@
 
   function setStatus(message) {
     status.textContent = message;
-  }
-
-  function addMessage(text, fromUser = false) {
-    const article = document.createElement("article");
-    article.className = `message ${fromUser ? "user-message" : "assistant-message"}`;
-    if (!fromUser) {
-      const avatar = document.createElement("span");
-      avatar.className = "avatar";
-      avatar.textContent = "M";
-      article.append(avatar);
-    }
-    const paragraph = document.createElement("p");
-    paragraph.textContent = text;
-    article.append(paragraph);
-    messages.append(article);
-    messages.scrollTop = messages.scrollHeight;
   }
 
   function speak(text) {
@@ -37,29 +19,24 @@
   }
 
   function reply(text) {
-    addMessage(text);
     setStatus(text);
     speak(text);
   }
 
   function openWhatsApp(text = "") {
-    const url = new URL("https://wa.me/");
-    if (text) url.searchParams.set("text", text);
-    window.location.assign(url.href);
-  }
-
-  function openDialer() {
-    const phone = window.prompt("Enter a phone number to review in your dialer:");
-    if (!phone) {
-      setStatus("Call cancelled.");
-      return;
+    const webUrl = new URL("https://wa.me/");
+    if (text) webUrl.searchParams.set("text", text);
+    const isAndroid = /android/i.test(navigator.userAgent);
+    if (isAndroid) {
+      const intentUrl = new URL(
+        `intent://send${text ? `?text=${encodeURIComponent(text)}` : ""}` +
+        `#Intent;scheme=whatsapp;package=com.whatsapp;` +
+        `S.browser_fallback_url=${encodeURIComponent(webUrl.href)};end`
+      );
+      window.location.assign(intentUrl.href);
+    } else {
+      window.location.assign(webUrl.href);
     }
-    const number = phone.replace(/[^\d+*#,;]/g, "");
-    if (!number) {
-      reply("That doesn’t look like a phone number. Try again.");
-      return;
-    }
-    window.location.assign(`tel:${number}`);
   }
 
   async function shareText(text) {
@@ -81,15 +58,27 @@
   }
 
   function handleCommand(rawCommand) {
-    const command = rawCommand.trim();
-    if (!command) return;
-    addMessage(command, true);
-    input.value = "";
-    const openWhatsAppMatch = command.match(/^open whatsapp(?: and (?:type|write|send) (.+))?$/i);
+    const command = rawCommand.trim()
+      .replace(/^(?:hey\s+max[\s,.:;'-]*)+/i, "")
+      .replace(/^(?:please\s+|can you\s+|could you\s+|would you\s+)/i, "")
+      .trim();
+    if (!command) {
+      reply("I’m ready. Say a command after “Hey Max,” or tap the microphone to try again.");
+      return;
+    }
+    const addressedMessage = command
+      .replace(/\s+(?:chat|on whatsapp|via whatsapp|in whatsapp)$/i, "")
+      .match(/^(?:say|send|text|message)\s+(.+?)\s+to\s+(.+)$/i);
+    const openWhatsAppMatch = command.match(/^(?:open|launch|start|go to) whatsapp(?: and (?:type|write|send) (.+))?$/i);
     const whatsAppMessageMatch = command.match(/^(?:send|message) (.+?)\s+(?:on|via|in|to) whatsapp$/i);
     const lower = command.toLocaleLowerCase();
 
-    if (openWhatsAppMatch) {
+    if (addressedMessage) {
+      const text = addressedMessage[1].trim();
+      const contact = addressedMessage[2].trim();
+      reply(`I can’t access your contacts in a browser. Opening WhatsApp with “${text}” ready; choose ${contact} and review it before sending.`);
+      openWhatsApp(text);
+    } else if (openWhatsAppMatch) {
       const text = openWhatsAppMatch[1]?.trim() ?? "";
       reply(text
         ? "Opening WhatsApp with your text ready. Choose a chat and review it before sending."
@@ -101,7 +90,7 @@
     } else if (lower === "call" || lower.startsWith("call ")) {
       const requestedNumber = command.slice(4).trim();
       if (!requestedNumber) {
-        openDialer();
+        reply("Say “call” followed by the phone number. I won’t open a text-entry prompt.");
       } else {
         const number = requestedNumber.replace(/[^\d+*#,;]/g, "");
         if (!number) {
@@ -128,37 +117,40 @@
         reply("What would you like to send?");
       }
     } else if (lower === "help") {
-      reply("Try: open WhatsApp, open WhatsApp and type hello, send hello via WhatsApp, call, or share hello.");
+      reply("Try: open WhatsApp, send hello via WhatsApp, call a number, or share text. To launch other installed apps, use the Android Max app.");
     } else {
-      reply("I can open WhatsApp, prepare a message to share, or open the dialer. Browsers can’t launch arbitrary apps.");
+      reply("I can open WhatsApp, prepare a message to share, or open the dialer. To open any installed app by voice, install Max for Android; mobile browsers cannot discover or launch arbitrary apps.");
     }
   }
 
   function listen() {
     if (!SpeechRecognition) {
-      setStatus("Voice recognition isn’t supported by this browser. You can type instead.");
+      setStatus("Voice recognition isn’t supported by this browser. Try a supported browser or the Android app.");
       return;
     }
     const recognition = new SpeechRecognition();
     recognition.lang = language.value;
     recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+    recognition.maxAlternatives = 3;
     micButton.disabled = true;
     micButton.classList.add("listening");
     setStatus("Listening…");
     recognition.onresult = event => {
-      const transcript = event.results?.[0]?.[0]?.transcript?.trim();
+      const alternatives = Array.from(event.results?.[0] ?? []);
+      const transcript = alternatives
+        .map(alternative => alternative.transcript?.trim())
+        .find(candidate => candidate && /^(?:hey\s+max\b)?\s*(?:please\s+)?(?:open|launch|start|go to|send|message|text|say|call|share)\b/i.test(candidate))
+        ?? alternatives[0]?.transcript?.trim();
       if (transcript) {
-        input.value = transcript;
-        setStatus("Heard you. Review your request, then tap send.");
+        handleCommand(transcript);
       } else {
-        setStatus("I didn’t catch that. Try again or type your request.");
+        setStatus("I didn’t catch that. Tap the microphone and try again.");
       }
     };
     recognition.onerror = event => {
       setStatus(event.error === "not-allowed"
         ? "Microphone permission was denied. Allow it in your browser settings."
-        : "Voice recognition stopped. Try again or type your request.");
+        : "Voice recognition stopped. Check microphone and speech-service permissions, then try again.");
     };
     recognition.onend = () => {
       micButton.disabled = false;
@@ -173,19 +165,11 @@
     }
   }
 
-  document.querySelector("#composer").addEventListener("submit", event => {
-    event.preventDefault();
-    handleCommand(input.value);
-  });
   micButton.addEventListener("click", listen);
-  document.querySelector("#clear-button").addEventListener("click", () => {
-    messages.replaceChildren();
-    setStatus("Conversation cleared.");
-  });
   document.querySelectorAll("[data-command]").forEach(button => {
     button.addEventListener("click", () => {
       const command = button.dataset.command;
-      if (command === "Call") openDialer();
+      if (command === "Call") reply("Say “call” followed by the phone number.");
       else if (command === "Share") handleCommand("Share");
       else handleCommand(command);
     });

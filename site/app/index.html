@@ -25,7 +25,7 @@
         <div class="orb" aria-hidden="true"><span></span><i></i><b></b></div>
         <p class="eyebrow">YOUR EVERYDAY ASSISTANT</p>
         <h1>What’s on<br><span>your mind?</span></h1>
-        <p class="subhead">Talk, type, or choose a shortcut. You stay in control of every action.</p>
+        <p class="subhead">Speak a request or choose a shortcut. You stay in control of every action.</p>
       </section>
 
       <section class="voice-card" aria-label="Voice controls">
@@ -46,13 +46,31 @@
               <option value="ko-KR">한국어</option>
               <option value="it-IT">Italiano</option>
               <option value="ru-RU">Русский</option>
+              <option value="bn-BD">বাংলা</option>
+              <option value="ur-PK">اردو</option>
+              <option value="pa-IN">ਪੰਜਾਬੀ</option>
+              <option value="ta-IN">தமிழ்</option>
+              <option value="te-IN">తెలుగు</option>
+              <option value="mr-IN">मराठी</option>
+              <option value="gu-IN">ગુજરાતી</option>
+              <option value="kn-IN">ಕನ್ನಡ</option>
+              <option value="ml-IN">മലയാളം</option>
+              <option value="id-ID">Bahasa Indonesia</option>
+              <option value="tr-TR">Türkçe</option>
+              <option value="vi-VN">Tiếng Việt</option>
+              <option value="th-TH">ไทย</option>
+              <option value="nl-NL">Nederlands</option>
+              <option value="pl-PL">Polski</option>
+              <option value="uk-UA">Українська</option>
+              <option value="fa-IR">فارسی</option>
+              <option value="sw-KE">Kiswahili</option>
             </select>
           </label>
         </div>
         <button class="mic-button" id="mic-button" type="button" aria-label="Start voice recognition">
           <span aria-hidden="true">⌁</span>
         </button>
-        <p class="mic-hint">Tap to speak · Recognition depends on your browser</p>
+        <p class="mic-hint">Tap to speak · Say “Hey Max, open WhatsApp” · Browser support varies</p>
       </section>
 
       <section class="shortcuts" aria-label="Quick actions">
@@ -61,25 +79,13 @@
         <button class="shortcut" type="button" data-command="Share"><span class="shortcut-icon share">↑</span><span>Share text</span></button>
       </section>
 
-      <section class="conversation" aria-label="Conversation">
-        <div class="section-title"><h2>Conversation</h2><button id="clear-button" type="button">Clear</button></div>
-        <div class="messages" id="messages" aria-live="polite">
-          <article class="message assistant-message"><span class="avatar">M</span><p>Hi! I’m Max. What can I help you with?</p></article>
-        </div>
-        <form class="composer" id="composer">
-          <label class="sr-only" for="command">Type a request</label>
-          <input id="command" name="command" placeholder="Type a request…" autocomplete="off">
-          <button type="submit" aria-label="Send request">↑</button>
-        </form>
-      </section>
-
       <aside class="notice">
         <strong>Made for your browser</strong>
-        <p>This web app can share messages and open phone links, but browsers don’t let websites open any installed app or listen for “Hey Max” in the background. Use the Android app for those Android-only features. Calls and messages still need your confirmation.</p>
+        <p>When you tap the microphone, Max understands commands with or without “Hey Max.” On Android, it tries to open WhatsApp in the installed app. A website cannot run an always-listening background microphone or discover every installed app. For background “Hey Max” and voice-launching apps such as Instagram or YouTube, install Max for Android from the main page and enable its wake phrase. Calls and messages still need your confirmation.</p>
       </aside>
       <footer><a href="../">Max Assistant</a><span>Web app · Works across screen sizes</span></footer>
     </main>
-    <script src="app.js" defer></script>
+    <script src="app.js?v=voice-fix-4" defer></script>
     <script>
       if ("serviceWorker" in navigator && location.protocol !== "file:") {
         window.addEventListener("load", () => navigator.serviceWorker.register("sw.js"));

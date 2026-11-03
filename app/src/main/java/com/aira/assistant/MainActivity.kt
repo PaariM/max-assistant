@@ -136,7 +136,7 @@ fun matchingContactPhoneNumbers(context: Context, contactName: String): List<Str
                 val number = cursor.getString(numberColumn).orEmpty()
                 if (normalizedDisplayName == normalizedName && number.isNotBlank()) add(number)
             }
-        }.distinct()
+        }.distinctBy { number -> number.filter(Char::isDigit) }
     }.orEmpty()
 }
 
