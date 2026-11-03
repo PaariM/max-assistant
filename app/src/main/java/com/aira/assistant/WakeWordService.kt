@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -16,6 +17,8 @@ import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
+import androidx.core.content.ContextCompat
 import java.util.Locale
 
 class WakeWordService : Service() {
@@ -24,13 +27,23 @@ class WakeWordService : Service() {
     private var listening = false
     private var waitingForCommand = false
     private var recognitionRetryAttempt = 0
+    private var textToSpeech: TextToSpeech? = null
+    private var textToSpeechReady = false
     private val restartListening = Runnable { startRecognition() }
     private val clearWaitingForCommand = Runnable { waitingForCommand = false }
+
+    override fun onCreate() {
+        super.onCreate()
+        textToSpeech = TextToSpeech(this) { result ->
+            textToSpeechReady = result == TextToSpeech.SUCCESS
+            if (textToSpeechReady) textToSpeech?.language = Locale.US
+        }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             stopSelf()
-            return START_STICKY
+            return START_NOT_STICKY
         }
         createNotificationChannel()
         val notification = buildListeningNotification()
@@ -49,7 +62,7 @@ class WakeWordService : Service() {
             .apply()
         if (speechRecognizer == null) createSpeechRecognizer()
         startRecognition()
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     private fun createSpeechRecognizer() {
@@ -81,12 +94,17 @@ class WakeWordService : Service() {
                 override fun onResults(results: Bundle?) {
                     listening = false
                     recognitionRetryAttempt = 0
-                    val phrase = results
+                    val alternatives = results
                         ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        ?.firstOrNull()
+                        .orEmpty()
+                    val phrase = alternatives.firstOrNull(::containsWakePhrase)
+                        ?: alternatives.firstOrNull()
                     if (phrase != null) notifyIfWakePhraseHeard(phrase)
                     handler.removeCallbacks(restartListening)
-                    handler.postDelayed(restartListening, RETRY_DELAY_MS)
+                    handler.postDelayed(
+                        restartListening,
+                        if (waitingForCommand) WAKE_ACK_RETRY_DELAY_MS else RETRY_DELAY_MS
+                    )
                 }
 
                 override fun onPartialResults(partialResults: Bundle?) = Unit
@@ -105,8 +123,9 @@ class WakeWordService : Service() {
                     .getString(PREFERENCE_LANGUAGE, Locale.getDefault().toLanguageTag())
                     ?: Locale.getDefault().toLanguageTag()
             )
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, MAX_RECOGNITION_ALTERNATIVES)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
         }
         try {
             listening = true
@@ -128,13 +147,12 @@ class WakeWordService : Service() {
         handler.postDelayed(restartListening, delay)
     }
 
+    private fun containsWakePhrase(text: String): Boolean =
+        WAKE_PHRASE_PATTERN.containsMatchIn(text)
+
     private fun notifyIfWakePhraseHeard(recognizedText: String) {
-        val normalized = recognizedText.lowercase(Locale.ROOT)
-            .replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-        val wakeIndex = normalized.indexOf(WAKE_PHRASE)
-        if (wakeIndex < 0) {
+        val rawWakePhrase = WAKE_PHRASE_PATTERN.find(recognizedText)
+        if (rawWakePhrase == null) {
             if (waitingForCommand) {
                 waitingForCommand = false
                 handler.removeCallbacks(clearWaitingForCommand)
@@ -143,17 +161,24 @@ class WakeWordService : Service() {
             return
         }
 
-        val rawWakePhrase = Regex("""hey\s+max""", RegexOption.IGNORE_CASE).find(recognizedText)
-        val command = rawWakePhrase?.let {
-            recognizedText.substring(it.range.last + 1).trim().trimStart(',', '.', ':', ';', '-', ' ')
-        }.orEmpty()
+        val command = recognizedText.substring(rawWakePhrase.range.last + 1)
+            .trim()
+            .trimStart(',', '.', ':', ';', '-', ' ')
         if (command.isBlank()) {
             waitingForCommand = true
             handler.removeCallbacks(clearWaitingForCommand)
             handler.postDelayed(clearWaitingForCommand, COMMAND_TIMEOUT_MS)
+            if (textToSpeechReady) {
+                textToSpeech?.speak(
+                    "I'm listening.",
+                    TextToSpeech.QUEUE_FLUSH,
+                    null,
+                    "max-wake-ack"
+                )
+            }
             postAssistantNotification(
                 title = "Max heard “Hey Max”",
-                message = "Say a command now, or tap to open Max."
+                message = "Max is listening for your command now."
             )
             return
         }
@@ -164,6 +189,16 @@ class WakeWordService : Service() {
     }
 
     private fun handleRecognizedCommand(command: String) {
+        val messageRequest = MESSAGE_TO_CONTACT_PATTERN.matchEntire(command.trim())
+        if (messageRequest != null) {
+            openContactMessage(
+                command,
+                messageRequest.groupValues[1].trim(),
+                messageRequest.groupValues[2].trim()
+            )
+            return
+        }
+
         val typedText = command.replaceFirst(
             Regex("""^(?:type|write|enter)\s+""", RegexOption.IGNORE_CASE),
             ""
@@ -215,6 +250,53 @@ class WakeWordService : Service() {
         }
 
         openAssistantWithCommand(command, "Tap to review your recognized command.")
+    }
+
+    private fun openContactMessage(command: String, message: String, contactName: String) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            openAssistantWithCommand(
+                command,
+                "Enable voice contact lookup in Max first. Then I can open a draft for the named contact."
+            )
+            return
+        }
+
+        val phoneNumbers = try {
+            matchingContactPhoneNumbers(this, contactName)
+        } catch (_: SecurityException) {
+            emptyList()
+        }
+        val packageName = findWhatsAppPackageName(this)
+        if (phoneNumbers.size != 1 || packageName == null) {
+            val reason = when {
+                packageName == null -> "WhatsApp isn’t installed."
+                phoneNumbers.isEmpty() -> "I couldn’t find one exact contact match for $contactName."
+                else -> "$contactName has more than one phone number."
+            }
+            openAssistantWithCommand(command, "$reason Tap to choose the contact and review the message.")
+            return
+        }
+
+        val launchIntent = createWhatsAppDraftIntent(packageName, phoneNumbers.single(), message)
+            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (launchIntent == null) {
+            openAssistantWithCommand(command, "I couldn’t prepare that WhatsApp draft.")
+            return
+        }
+        try {
+            startActivity(launchIntent)
+            postAssistantNotification(
+                title = "WhatsApp draft ready for $contactName",
+                message = "Review the message and tap Send yourself.",
+                targetIntent = launchIntent
+            )
+        } catch (_: ActivityNotFoundException) {
+            openAssistantWithCommand(command, "I couldn’t open WhatsApp. Tap to review the message.")
+        } catch (_: SecurityException) {
+            openAssistantWithCommand(command, "Android blocked this background launch. Tap to review the message.")
+        }
     }
 
     private fun openAssistantWithCommand(command: String, message: String) {
@@ -296,6 +378,9 @@ class WakeWordService : Service() {
         speechRecognizer?.cancel()
         speechRecognizer?.destroy()
         speechRecognizer = null
+        textToSpeech?.stop()
+        textToSpeech?.shutdown()
+        textToSpeech = null
         getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE)
             .edit()
             .putBoolean(PREFERENCE_LISTENING, false)
@@ -319,9 +404,14 @@ class WakeWordService : Service() {
         private const val OPEN_REQUEST_CODE = 3103
         private const val STOP_REQUEST_CODE = 3104
         private const val RETRY_DELAY_MS = 900L
+        private const val WAKE_ACK_RETRY_DELAY_MS = 1_500L
         private const val MAX_RETRY_DELAY_MS = 30_000L
         private const val MAX_RETRY_SHIFT = 5
+        private const val MAX_RECOGNITION_ALTERNATIVES = 3
         private const val COMMAND_TIMEOUT_MS = 8_000L
-        private const val WAKE_PHRASE = "hey max"
+        private val WAKE_PHRASE_PATTERN =
+            Regex("""\bhey[\s,.:;'-]+(?:max|maks|macs)\b""", RegexOption.IGNORE_CASE)
+        private val MESSAGE_TO_CONTACT_PATTERN =
+            Regex("""(?:say|send|text|message)\s+(.+?)\s+to\s+(.+)""", RegexOption.IGNORE_CASE)
     }
 }

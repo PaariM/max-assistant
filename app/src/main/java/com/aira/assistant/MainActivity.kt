@@ -108,6 +108,54 @@ fun findInstalledAppLaunchIntent(context: Context, requestedName: String): Inten
     return context.packageManager.getLaunchIntentForPackage(match.third)
 }
 
+fun matchingContactPhoneNumbers(context: Context, contactName: String): List<String> {
+    if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) != PERMISSION_GRANTED) {
+        return emptyList()
+    }
+    val normalizedName = contactName.lowercase(Locale.ROOT)
+        .replace(Regex("""[^\p{L}\p{N}]"""), "")
+    if (normalizedName.isBlank()) return emptyList()
+
+    return context.contentResolver.query(
+        ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+        arrayOf(
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+            ContactsContract.CommonDataKinds.Phone.NUMBER
+        ),
+        null,
+        null,
+        null
+    )?.use { cursor ->
+        val nameColumn = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+        val numberColumn = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)
+        buildList {
+            while (cursor.moveToNext()) {
+                val displayName = cursor.getString(nameColumn).orEmpty()
+                val normalizedDisplayName = displayName.lowercase(Locale.ROOT)
+                    .replace(Regex("""[^\p{L}\p{N}]"""), "")
+                val number = cursor.getString(numberColumn).orEmpty()
+                if (normalizedDisplayName == normalizedName && number.isNotBlank()) add(number)
+            }
+        }.distinct()
+    }.orEmpty()
+}
+
+fun findWhatsAppPackageName(context: Context): String? =
+    listOf("com.whatsapp", "com.whatsapp.w4b")
+        .firstOrNull { context.packageManager.getLaunchIntentForPackage(it) != null }
+
+fun createWhatsAppDraftIntent(packageName: String, phoneNumber: String, message: String): Intent? {
+    val digits = phoneNumber.filter(Char::isDigit)
+    if (digits.isBlank()) return null
+    val uri = Uri.Builder()
+        .scheme("https")
+        .authority("wa.me")
+        .appendPath(digits)
+        .apply { if (message.isNotBlank()) appendQueryParameter("text", message) }
+        .build()
+    return Intent(Intent.ACTION_VIEW, uri).setPackage(packageName)
+}
+
 private data class SpeechLanguage(val tag: String, val name: String)
 
 private val speechLanguages = listOf(
@@ -152,19 +200,10 @@ private fun isAccessibilityServiceEnabled(context: Context): Boolean {
 }
 
 private fun openWhatsAppDraft(context: Context, packageName: String, phoneNumber: String, message: String): Boolean {
-    val digits = phoneNumber.filter(Char::isDigit)
-    if (digits.isBlank()) return false
-    val uri = Uri.Builder()
-        .scheme("https")
-        .authority("wa.me")
-        .appendPath(digits)
-        .apply { if (message.isNotBlank()) appendQueryParameter("text", message) }
-        .build()
+    val intent = createWhatsAppDraftIntent(packageName, phoneNumber, message) ?: return false
     return try {
         context.startActivity(
-            Intent(Intent.ACTION_VIEW, uri)
-                .setPackage(packageName)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
         true
     } catch (_: ActivityNotFoundException) {
@@ -226,6 +265,11 @@ private fun AssistantScreen(initialCommand: String?) {
         )
     }
     var accessibilityEnabled by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
+    var contactsAccessEnabled by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PERMISSION_GRANTED
+        )
+    }
     var expandedApps by remember { mutableStateOf(false) }
     var pendingWhatsAppMessage by remember { mutableStateOf<String?>(null) }
     var speechLanguageTag by remember {
@@ -342,6 +386,16 @@ private fun AssistantScreen(initialCommand: String?) {
             status = "Microphone and notification permissions are needed for wake phrase listening."
         }
     }
+    val contactsPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        contactsAccessEnabled = granted
+        status = if (granted) {
+            "Voice contact lookup is on. Say “Hey Max, send good morning to Haris.” Max opens a draft; you decide whether to send it."
+        } else {
+            "Contacts permission was not granted. You can still choose a contact manually when making a message draft."
+        }
+    }
     val textToSpeech = remember {
         TextToSpeech(context) { }
     }
@@ -434,18 +488,35 @@ private fun AssistantScreen(initialCommand: String?) {
     }
 
     fun openWhatsAppContact(message: String, contact: String) {
-        val packageName = when {
-            apps.any { it.packageName == "com.whatsapp" } -> "com.whatsapp"
-            apps.any { it.packageName == "com.whatsapp.w4b" } -> "com.whatsapp.w4b"
-            else -> null
-        }
+        val packageName = findWhatsAppPackageName(context)
         if (packageName == null) {
             reply("WhatsApp isn’t installed.")
             if (message.isNotBlank()) shareText(message)
             return
         }
+        if (contactsAccessEnabled) {
+            val phoneNumbers = try {
+                matchingContactPhoneNumbers(context, contact)
+            } catch (_: SecurityException) {
+                emptyList()
+            }
+            if (phoneNumbers.size == 1) {
+                if (openWhatsAppDraft(context, packageName, phoneNumbers.single(), message)) {
+                    reply("WhatsApp is open with your draft. Review it and tap Send yourself.")
+                } else {
+                    reply("I couldn’t open that WhatsApp chat. Choose the contact manually.")
+                }
+                return
+            }
+        }
         pendingWhatsAppMessage = message
-        reply("Choose $contact in Contacts. WhatsApp will open with your draft for you to review; Max won’t send it.")
+        reply(
+            if (contactsAccessEnabled) {
+                "I couldn’t uniquely match $contact. Choose the right contact; Max won’t send the message."
+            } else {
+                "Choose $contact in Contacts. To open chats hands-free next time, enable voice contact lookup."
+            }
+        )
         try {
             contactsLauncher.launch(
                 Intent(
@@ -720,6 +791,31 @@ private fun AssistantScreen(initialCommand: String?) {
             }
             Text(
                 "Enable listening once and allow the Android microphone and notification prompts. Then say “Hey Max, open Instagram.” App launching does not need Accessibility; that separate setting is only for typing into another app.",
+                color = Muted,
+                fontSize = 12.sp
+            )
+            Button(
+                onClick = {
+                    if (contactsAccessEnabled) {
+                        status = "Voice contact lookup is already enabled."
+                    } else {
+                        contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (contactsAccessEnabled) Color(0xFF343B50) else Color(0xFF243A42)
+                ),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text(
+                    if (contactsAccessEnabled) "Voice contact lookup is on"
+                    else "Enable voice contact lookup",
+                    color = Color.White
+                )
+            }
+            Text(
+                "Optional: grant Contacts access once to say “Hey Max, send good morning to Haris.” Max opens a WhatsApp draft but never presses Send.",
                 color = Muted,
                 fontSize = 12.sp
             )
