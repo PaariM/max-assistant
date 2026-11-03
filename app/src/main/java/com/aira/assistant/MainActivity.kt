@@ -208,9 +208,6 @@ private fun AssistantScreen(initialCommand: String?) {
         )
     }
     var speechLanguageMenuExpanded by remember { mutableStateOf(false) }
-    var messages by remember {
-        mutableStateOf(listOf("Hi! I’m Max. What can I help you do?"))
-    }
     val apps = remember {
         val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         context.packageManager.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
@@ -263,13 +260,10 @@ private fun AssistantScreen(initialCommand: String?) {
             }
             if (phoneNumber.isNullOrBlank()) {
                 status = "That contact doesn’t have a phone number to open in WhatsApp."
-                messages = messages + status
             } else if (packageName == null) {
                 status = "WhatsApp isn’t installed. You can still share the message with another app."
-                messages = messages + status
                 if (message.isNotBlank() && !shareMessage(context, message)) {
                     status = "No app is available to share that message."
-                    messages = messages + status
                 }
             } else if (openWhatsAppDraft(context, packageName, phoneNumber, message)) {
                 status = if (message.isBlank()) {
@@ -277,13 +271,10 @@ private fun AssistantScreen(initialCommand: String?) {
                 } else {
                     "WhatsApp opened with your draft. Review it and tap Send yourself."
                 }
-                messages = messages + status
             } else {
                 status = "I couldn’t open that WhatsApp chat. You can still share the text with another app."
-                messages = messages + status
                 if (message.isNotBlank() && !shareMessage(context, message)) {
                     status = "No app is available to share that message."
-                    messages = messages + status
                 }
             }
         } else {
@@ -331,7 +322,6 @@ private fun AssistantScreen(initialCommand: String?) {
     }
 
     fun reply(text: String) {
-        messages = messages + text
         status = text
         textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "max-reply")
     }
@@ -444,7 +434,6 @@ private fun AssistantScreen(initialCommand: String?) {
     fun handleCommand(rawCommand: String) {
         val command = rawCommand.trim()
         if (command.isEmpty()) return
-        messages = messages + "You: $command"
         val lower = command.lowercase(Locale.getDefault())
 
         val addressedCommand = command.replace(
@@ -796,26 +785,6 @@ private fun AssistantScreen(initialCommand: String?) {
                         }
                     }
                     if (rowApps.size == 1) Spacer(Modifier.weight(1f))
-                }
-            }
-
-            Text("RECENT", color = Muted, fontSize = 11.sp, letterSpacing = 1.4.sp)
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Panel),
-                shape = RoundedCornerShape(18.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    messages.takeLast(4).forEach { message ->
-                        Text(
-                            message,
-                            color = if (message.startsWith("You:")) Muted else Color.White,
-                            fontSize = 13.sp
-                        )
-                    }
                 }
             }
 

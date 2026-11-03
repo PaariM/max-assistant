@@ -1,6 +1,5 @@
 (() => {
   const status = document.querySelector("#status");
-  const messages = document.querySelector("#messages");
   const language = document.querySelector("#language");
   const micButton = document.querySelector("#mic-button");
   const installButton = document.querySelector("#install-button");
@@ -9,22 +8,6 @@
 
   function setStatus(message) {
     status.textContent = message;
-  }
-
-  function addMessage(text, fromUser = false) {
-    const article = document.createElement("article");
-    article.className = `message ${fromUser ? "user-message" : "assistant-message"}`;
-    if (!fromUser) {
-      const avatar = document.createElement("span");
-      avatar.className = "avatar";
-      avatar.textContent = "M";
-      article.append(avatar);
-    }
-    const paragraph = document.createElement("p");
-    paragraph.textContent = text;
-    article.append(paragraph);
-    messages.append(article);
-    messages.scrollTop = messages.scrollHeight;
   }
 
   function speak(text) {
@@ -36,7 +19,6 @@
   }
 
   function reply(text) {
-    addMessage(text);
     setStatus(text);
     speak(text);
   }
@@ -68,7 +50,6 @@
   function handleCommand(rawCommand) {
     const command = rawCommand.trim();
     if (!command) return;
-    addMessage(command, true);
     const addressedMessage = command
       .replace(/\s+(?:chat|on whatsapp|via whatsapp|in whatsapp)$/i, "")
       .match(/^(?:say|send|text|message)\s+(.+?)\s+to\s+(.+)$/i);
@@ -165,10 +146,6 @@
   }
 
   micButton.addEventListener("click", listen);
-  document.querySelector("#clear-button").addEventListener("click", () => {
-    messages.replaceChildren();
-    setStatus("Conversation cleared.");
-  });
   document.querySelectorAll("[data-command]").forEach(button => {
     button.addEventListener("click", () => {
       const command = button.dataset.command;

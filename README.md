@@ -8,7 +8,7 @@ Open this folder in Android Studio and run the `app` configuration on an Android
 
 ## Browser app
 
-The progressive web app (PWA) lives in `site/app/`. It adapts to phone, tablet, and desktop screens; can be installed from a supported browser; and caches its app shell for offline reopening after its first successful load. It accepts voice requests while open, speaks replies, shares text, opens WhatsApp's web handoff, and opens the phone dialer. It has no typed-command box.
+The progressive web app (PWA) lives in `site/app/`. It adapts to phone, tablet, and desktop screens; can be installed from a supported browser; and caches its app shell for offline reopening after its first successful load. It accepts voice requests while open, speaks replies, shares text, opens WhatsApp's web handoff, and opens the phone dialer. It has no typed-command box or conversation-history panel.
 
 The browser app cannot launch arbitrary installed apps, inspect contacts, enter text into another app, or listen for “Hey Max” in the background. Speech recognition support and language coverage depend on the browser and its speech service.
 
