@@ -95,6 +95,7 @@ fun findInstalledAppLaunchIntent(context: Context, requestedName: String): Inten
     val candidates = context.packageManager.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
         .mapNotNull { result ->
             val activityInfo = result.activityInfo ?: return@mapNotNull null
+            if (activityInfo.packageName == context.packageName) return@mapNotNull null
             val label = result.loadLabel(context.packageManager).toString()
             val normalizedLabel = label.lowercase(Locale.ROOT)
                 .replace(Regex("""[^\p{L}\p{N}]"""), "")
@@ -717,6 +718,11 @@ private fun AssistantScreen(initialCommand: String?) {
                     color = Color.White
                 )
             }
+            Text(
+                "Enable listening once and allow the Android microphone and notification prompts. Then say “Hey Max, open Instagram.” App launching does not need Accessibility; that separate setting is only for typing into another app.",
+                color = Muted,
+                fontSize = 12.sp
+            )
 
             Card(
                 modifier = Modifier.fillMaxWidth(),

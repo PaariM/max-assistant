@@ -23,13 +23,14 @@ class WakeWordService : Service() {
     private var speechRecognizer: SpeechRecognizer? = null
     private var listening = false
     private var waitingForCommand = false
+    private var recognitionRetryAttempt = 0
     private val restartListening = Runnable { startRecognition() }
     private val clearWaitingForCommand = Runnable { waitingForCommand = false }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             stopSelf()
-            return START_NOT_STICKY
+            return START_STICKY
         }
         createNotificationChannel()
         val notification = buildListeningNotification()
@@ -70,18 +71,16 @@ class WakeWordService : Service() {
 
                 override fun onError(error: Int) {
                     listening = false
-                    if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ||
-                        error == SpeechRecognizer.ERROR_CLIENT
-                    ) {
+                    if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
                         stopSelf()
                     } else {
-                        handler.removeCallbacks(restartListening)
-                        handler.postDelayed(restartListening, RETRY_DELAY_MS)
+                        scheduleRecognitionRetry()
                     }
                 }
 
                 override fun onResults(results: Bundle?) {
                     listening = false
+                    recognitionRetryAttempt = 0
                     val phrase = results
                         ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         ?.firstOrNull()
@@ -117,9 +116,16 @@ class WakeWordService : Service() {
             stopSelf()
         } catch (_: IllegalStateException) {
             listening = false
-            handler.removeCallbacks(restartListening)
-            handler.postDelayed(restartListening, RETRY_DELAY_MS)
+            scheduleRecognitionRetry()
         }
+    }
+
+    private fun scheduleRecognitionRetry() {
+        handler.removeCallbacks(restartListening)
+        val multiplier = 1L shl recognitionRetryAttempt.coerceAtMost(MAX_RETRY_SHIFT)
+        val delay = (RETRY_DELAY_MS * multiplier).coerceAtMost(MAX_RETRY_DELAY_MS)
+        recognitionRetryAttempt = (recognitionRetryAttempt + 1).coerceAtMost(MAX_RETRY_SHIFT + 1)
+        handler.postDelayed(restartListening, delay)
     }
 
     private fun notifyIfWakePhraseHeard(recognizedText: String) {
@@ -313,6 +319,8 @@ class WakeWordService : Service() {
         private const val OPEN_REQUEST_CODE = 3103
         private const val STOP_REQUEST_CODE = 3104
         private const val RETRY_DELAY_MS = 900L
+        private const val MAX_RETRY_DELAY_MS = 30_000L
+        private const val MAX_RETRY_SHIFT = 5
         private const val COMMAND_TIMEOUT_MS = 8_000L
         private const val WAKE_PHRASE = "hey max"
     }
