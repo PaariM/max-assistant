@@ -16,7 +16,7 @@ On iPhone, open the deployed page in Safari, tap **Share**, then **Add to Home S
 
 ## Publish Android downloads and the website
 
-The website source is in `site/`; `docs/index.html` forwards the GitHub Pages project URL to it. In GitHub, create a **public** repository, push this source to its `main` branch, then open **Settings → Pages**, choose **Deploy from a branch**, select `main` and `/docs`, and save. For `OWNER/max-assistant`, the site will be at `https://OWNER.github.io/max-assistant/`.
+The website source is in `site/`; `docs/index.html` serves the GitHub Pages landing page, with the PWA available under `/site/app/`. In GitHub, create a **public** repository, push this source to its `main` branch, then open **Settings → Pages**, choose **Deploy from a branch**, select `main` and `/docs`, and save. For `OWNER/max-assistant`, the site will be at `https://OWNER.github.io/max-assistant/`.
 
 The website's Android download button uses the latest GitHub Release asset named `MaxAssistant.apk`. Create a release tagged `v1.0.0` and attach that APK. For future updates, build and sign a release APK using the same securely backed-up Android signing keystore; never commit the keystore or passwords. Android users can download and install the APK from the website; iPhone users can install the browser app.
 
