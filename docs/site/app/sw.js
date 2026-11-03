@@ -1,9 +1,9 @@
-const CACHE_NAME = "max-web-v4";
+const CACHE_NAME = "max-web-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./app.css",
-  "./app.js",
+  "./app.js?v=voice-only-2",
   "./manifest.webmanifest",
   "./icon.svg",
   "./icon-192.png",
