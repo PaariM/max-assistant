@@ -58,12 +58,18 @@
   }
 
   function handleCommand(rawCommand) {
-    const command = rawCommand.trim();
-    if (!command) return;
+    const command = rawCommand.trim()
+      .replace(/^(?:hey\s+max[\s,.:;'-]*)+/i, "")
+      .replace(/^(?:please\s+|can you\s+|could you\s+|would you\s+)/i, "")
+      .trim();
+    if (!command) {
+      reply("I’m ready. Say a command after “Hey Max,” or tap the microphone to try again.");
+      return;
+    }
     const addressedMessage = command
       .replace(/\s+(?:chat|on whatsapp|via whatsapp|in whatsapp)$/i, "")
       .match(/^(?:say|send|text|message)\s+(.+?)\s+to\s+(.+)$/i);
-    const openWhatsAppMatch = command.match(/^open whatsapp(?: and (?:type|write|send) (.+))?$/i);
+    const openWhatsAppMatch = command.match(/^(?:open|launch|start|go to) whatsapp(?: and (?:type|write|send) (.+))?$/i);
     const whatsAppMessageMatch = command.match(/^(?:send|message) (.+?)\s+(?:on|via|in|to) whatsapp$/i);
     const lower = command.toLocaleLowerCase();
 
@@ -125,12 +131,16 @@
     const recognition = new SpeechRecognition();
     recognition.lang = language.value;
     recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+    recognition.maxAlternatives = 3;
     micButton.disabled = true;
     micButton.classList.add("listening");
     setStatus("Listening…");
     recognition.onresult = event => {
-      const transcript = event.results?.[0]?.[0]?.transcript?.trim();
+      const alternatives = Array.from(event.results?.[0] ?? []);
+      const transcript = alternatives
+        .map(alternative => alternative.transcript?.trim())
+        .find(candidate => candidate && /^(?:hey\s+max\b)?\s*(?:please\s+)?(?:open|launch|start|go to|send|message|text|say|call|share)\b/i.test(candidate))
+        ?? alternatives[0]?.transcript?.trim();
       if (transcript) {
         handleCommand(transcript);
       } else {

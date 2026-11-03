@@ -70,7 +70,7 @@
         <button class="mic-button" id="mic-button" type="button" aria-label="Start voice recognition">
           <span aria-hidden="true">⌁</span>
         </button>
-        <p class="mic-hint">Tap to speak · Recognition depends on your browser</p>
+        <p class="mic-hint">Tap to speak · Say “Hey Max, open WhatsApp” · Browser support varies</p>
       </section>
 
       <section class="shortcuts" aria-label="Quick actions">
@@ -81,11 +81,11 @@
 
       <aside class="notice">
         <strong>Made for your browser</strong>
-        <p>On Android, the WhatsApp shortcut tries to open the installed WhatsApp app. A browser cannot find or launch every installed app. To say “open YouTube” or open other apps by voice, install Max for Android from the main page. The Android app can launch installed apps; calls and messages still need your confirmation.</p>
+        <p>When you tap the microphone, Max understands commands with or without “Hey Max.” On Android, it tries to open WhatsApp in the installed app. A website cannot run an always-listening background microphone or discover every installed app. For background “Hey Max” and voice-launching apps such as Instagram or YouTube, install Max for Android from the main page and enable its wake phrase. Calls and messages still need your confirmation.</p>
       </aside>
       <footer><a href="../">Max Assistant</a><span>Web app · Works across screen sizes</span></footer>
     </main>
-    <script src="app.js?v=voice-apps-3" defer></script>
+    <script src="app.js?v=voice-fix-4" defer></script>
     <script>
       if ("serviceWorker" in navigator && location.protocol !== "file:") {
         window.addEventListener("load", () => navigator.serviceWorker.register("sw.js"));
