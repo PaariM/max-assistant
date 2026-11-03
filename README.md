@@ -18,7 +18,7 @@ On iPhone, open the deployed page in Safari, tap **Share**, then **Add to Home S
 
 The website source is in `site/`; `docs/index.html` serves the GitHub Pages landing page, with the PWA available under `/site/app/`. In GitHub, create a **public** repository, push this source to its `main` branch, then open **Settings → Pages**, choose **Deploy from a branch**, select `main` and `/docs`, and save. For `OWNER/max-assistant`, the site will be at `https://OWNER.github.io/max-assistant/`.
 
-The website's Android download button uses the latest GitHub Release asset named `MaxAssistant.apk`. Create a release tagged `v1.0.0` and attach that APK. For future updates, build and sign a release APK using the same securely backed-up Android signing keystore; never commit the keystore or passwords. Android users can download and install the APK from the website; iPhone users can install the browser app.
+The website's Android download button uses the latest GitHub Release asset named `MaxAssistant.apk`. For this deployment, the short download URL is `https://paarim.github.io/max-assistant/get/`. Create a release tagged `v1.0.0` and attach that APK. For future updates, build and sign a release APK using the same securely backed-up Android signing keystore; never commit the keystore or passwords. Android users can download and install the APK from the website; iPhone users can install the browser app.
 
 GitHub Actions release and Pages workflows are also included under `.github/workflows/` for automated future builds. GitHub requires separate `workflow` authorization to upload or change those workflow files. Until that is granted and the workflows are uploaded, publish Pages from the `/docs` folder and attach APKs to releases manually.
 

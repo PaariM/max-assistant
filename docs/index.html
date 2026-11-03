@@ -62,7 +62,7 @@
         const topInstall = document.getElementById("top-install");
         const note = document.getElementById("download-note");
         if (isGitHubPages && owner && repo) {
-          const apkUrl = `https://github.com/${owner}/${repo}/releases/latest/download/MaxAssistant.apk`;
+          const apkUrl = new URL("get/", window.location.href).href;
           download.href = apkUrl;
           topInstall.href = apkUrl;
         } else {
