@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#111522">
+    <meta name="description" content="Download Max, a voice-first Android assistant with the Hey Max wake phrase.">
+    <title>Max — Your voice, in motion</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <main>
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="Max home">
+          <span class="brand-mark">M</span>
+          <span>Max</span>
+        </a>
+        <span class="platform">ANDROID APP</span>
+      </header>
+
+      <section class="hero">
+        <div class="orb" aria-hidden="true"><span></span><i></i><b></b></div>
+        <p class="eyebrow">A LITTLE MORE HUMAN, A LOT MORE HANDY</p>
+        <h1>Your voice,<br><span>in motion.</span></h1>
+        <p class="intro">
+          Meet Max — your voice-first Android companion. Say “Hey Max” to wake it,
+          open apps, get things ready, and keep moving.
+        </p>
+        <div class="hero-actions">
+          <a class="download" id="download" href="#">
+            <span class="download-icon" aria-hidden="true">↓</span>
+            <span><strong>Get Max for Android</strong><small id="download-note">Free APK · Android 8.0 or later</small></span>
+          </a>
+          <a class="web-app" href="app/">
+            <span><strong>Open the web app</strong><small>iPhone, Android &amp; desktop</small></span>
+            <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+        <p class="install-hint" id="install-hint">
+          Android may ask you to allow installs from your browser. Only install apps you trust.
+        </p>
+      </section>
+
+      <section class="features" aria-label="Features">
+        <article><span>01</span><h2>Just say it</h2><p>Wake Max with “Hey Max” or tap the mic to speak.</p></article>
+        <article><span>02</span><h2>Go anywhere</h2><p>Find and open apps installed on your Android phone.</p></article>
+        <article><span>03</span><h2>Stay in control</h2><p>Review messages and calls before they leave your phone.</p></article>
+      </section>
+
+      <footer>
+        <span>Max Assistant</span>
+        <span>Built for Android · Your microphone, your choice</span>
+      </footer>
+    </main>
+    <script>
+      (() => {
+        const owner = window.location.hostname.split(".")[0];
+        const pathParts = window.location.pathname.split("/").filter(Boolean);
+        const repo = pathParts[0] || `${owner}.github.io`;
+        const isGitHubPages = window.location.hostname.endsWith(".github.io");
+        const download = document.getElementById("download");
+        const note = document.getElementById("download-note");
+        if (isGitHubPages && owner && repo) {
+          download.href = `https://github.com/${owner}/${repo}/releases/latest/download/MaxAssistant.apk`;
+        } else {
+          download.setAttribute("aria-disabled", "true");
+          download.addEventListener("click", event => event.preventDefault());
+          note.textContent = "APK download will be available after publishing a release";
+        }
+      })();
+    </script>
+  </body>
+</html>
